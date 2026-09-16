@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.uv/
+*.wav
+*.srt
+*.trajectory.json
+project/
+ggml-*.bin
+.DS_Store

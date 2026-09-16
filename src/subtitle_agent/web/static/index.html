@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>视频字幕 Agent</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">字</span>
+      <div>
+        <h1>视频字幕 Agent</h1>
+        <div class="sub" id="projectDir">加载中…</div>
+      </div>
+    </div>
+    <div class="badges">
+      <span class="badge" id="llmBadge">LLM</span>
+      <span class="badge" id="whisperBadge">whisper</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- 左：视频库 -->
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <h2>视频库</h2>
+        <button class="icon-btn" id="refreshVideos" title="刷新">⟳</button>
+      </div>
+      <input type="search" id="search" placeholder="搜索视频…" />
+      <div class="video-list" id="videoList"></div>
+    </aside>
+
+    <!-- 中：播放器 + 字幕编辑 -->
+    <main class="workspace">
+      <section class="player-panel">
+        <div class="player-wrap">
+          <video id="player" controls preload="metadata"></video>
+          <div class="subtitle-overlay" id="overlay"></div>
+          <div class="empty-hint" id="emptyHint">从左侧选择一个视频</div>
+        </div>
+      </section>
+
+      <section class="editor-panel">
+        <div class="editor-head">
+          <h2><span id="editorTitle">字幕编辑</span> <span class="muted" id="cueCount"></span></h2>
+          <div class="editor-tools">
+            <div class="view-toggle">
+              <button class="active" data-view="edit">字幕编辑</button>
+              <button data-view="trajectory">生成轨迹</button>
+            </div>
+            <label class="speed-control"><span class="muted">倍速</span>
+              <select id="playbackRate" title="播放速度（快捷键 [ 减速 / ] 加速）">
+                <option value="0.5">0.5×</option>
+                <option value="0.75">0.75×</option>
+                <option value="1" selected>1.0×</option>
+                <option value="1.25">1.25×</option>
+                <option value="1.5">1.5×</option>
+                <option value="1.75">1.75×</option>
+                <option value="2">2.0×</option>
+                <option value="2.5">2.5×</option>
+                <option value="3">3.0×</option>
+              </select>
+            </label>
+            <label class="checkbox small"><input type="checkbox" id="followPlay" checked /> 跟随播放</label>
+            <button class="icon-btn" id="btnUndo" title="撤销">↶</button>
+          </div>
+        </div>
+        <div id="editView" class="edit-view">
+          <div class="table-head">
+            <span>#</span><span>开始</span><span>结束</span><span>文本</span><span></span>
+          </div>
+          <div class="cue-list" id="cueList"></div>
+        </div>
+        <div id="trajectoryView" class="trajectory-view hidden"></div>
+      </section>
+    </main>
+
+    <!-- 右：生成设置 / 上下文 -->
+    <aside class="settings-panel">
+      <div class="file-title">
+        <strong id="currentName">未选择视频</strong>
+        <span class="muted" id="currentMeta"></span>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="generate">生成设置</button>
+        <button class="tab" data-tab="context">上下文与资料</button>
+      </div>
+
+      <div class="tab-panel" id="tab-generate">
+        <div class="panel-block">
+          <div class="settings-grid">
+            <label>每句最多字数
+              <input type="number" id="maxChars" min="6" max="60" value="18" />
+            </label>
+            <label>最短显示(秒)
+              <input type="number" id="minDuration" min="0.3" max="5" step="0.1" value="0.8" />
+            </label>
+            <label>LLM 分块字数
+              <input type="number" id="blockChars" min="60" max="800" step="10" value="220" />
+            </label>
+          </div>
+          <div class="switch-list">
+            <label class="checkbox"><input type="checkbox" id="useLlm" checked /> 使用 LLM 纠正</label>
+            <label class="checkbox"><input type="checkbox" id="useFrames" checked /> 结合画面截图</label>
+            <label class="checkbox"><input type="checkbox" id="force" /> 强制重跑（覆盖已有）</label>
+          </div>
+        </div>
+
+        <div class="panel-block">
+          <div class="actions">
+            <button class="primary wide" id="btnFull">① 全流程生成字幕</button>
+            <button id="btnClean">② 仅重新清洗/重排</button>
+            <button id="btnTranscribe">③ 重新转写</button>
+            <button id="btnFrames">④ 仅抽取截图</button>
+            <button id="btnSave" disabled>保存字幕</button>
+            <button id="btnDownload" disabled>下载 SRT</button>
+            <button id="btnAddCue" class="wide">＋ 在播放处添加字幕</button>
+          </div>
+        </div>
+
+        <div class="progress hidden" id="progressBox">
+          <div class="progress-bar"><div id="progressFill"></div></div>
+          <div class="progress-text"><span id="progressMsg"></span><span id="progressPct"></span></div>
+          <details open>
+            <summary>运行日志</summary>
+            <pre id="jobLog"></pre>
+          </details>
+        </div>
+      </div>
+
+      <div class="tab-panel hidden" id="tab-context">
+        <div class="config-bar">
+          <span class="muted" id="configPath">尚未选择视频</span>
+          <div class="config-actions">
+            <select id="reuseSelect"><option value="">从其他视频复用配置…</option></select>
+            <button id="btnReuse">复用</button>
+            <label class="upload-btn">导入 JSON<input type="file" id="configFile" accept=".json,application/json" hidden /></label>
+            <button id="btnExportConfig">导出 JSON</button>
+          </div>
+        </div>
+        <p class="hint">
+          本视频配置保存在视频旁边的 <code>&lt;视频名&gt;.subtitle.json</code>，会自动作为「参考上下文」注入 LLM。也可复用其他视频的配置或导入现成 JSON。
+        </p>
+        <div class="ctx-grid">
+          <label>标题
+            <input type="text" id="cfgTitle" placeholder="视频标题" />
+          </label>
+          <label class="wide">内容说明 / 背景
+            <textarea id="ctxContext" rows="3" placeholder="本视频讲了什么、有哪些人名/专有名词"></textarea>
+          </label>
+          <label class="wide">术语表 <span class="muted">每行一条：正确写法 = 易误听写法1, 易误听写法2 | 说明</span>
+            <textarea id="ctxGlossary" rows="4" placeholder="哈希表 = 哈西表 | 数据结构"></textarea>
+          </label>
+          <label class="checkbox"><input type="checkbox" id="ctxUseFrames" checked /> 使用画面截图</label>
+          <label>截图间隔(秒)
+            <input type="number" id="ctxFrameInterval" min="5" max="600" step="5" value="45" />
+          </label>
+        </div>
+
+        <div class="doc-block">
+          <div class="doc-head">
+            <strong>参考资料</strong>
+            <span class="muted" id="docCount"></span>
+          </div>
+          <div class="doc-list" id="docList"></div>
+          <div class="doc-add">
+            <input type="text" id="docInput" placeholder="文档路径或 https:// 链接" />
+            <button id="btnAddDoc">添加</button>
+            <label class="upload-btn">上传<input type="file" id="docFile" hidden /></label>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="primary wide" id="btnSaveConfig" disabled>保存配置</button>
+          <button id="btnPreviewCtx" disabled>预览注入内容</button>
+          <button class="danger" id="btnClearCache">清除摘要缓存</button>
+        </div>
+        <pre id="ctxPreview" class="ctx-preview hidden"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
