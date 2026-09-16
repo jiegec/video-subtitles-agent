@@ -110,12 +110,14 @@ def run_whisper(
     log: LogFn = _noop,
     progress: Callable[[int], None] | None = None,
     prompt: str = "",
+    model: Path | None = None,
+    extra_args: list[str] | None = None,
 ) -> Path:
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         settings.whisper_bin,
         "-m",
-        str(settings.whisper_model),
+        str(model or settings.whisper_model),
         "-f",
         str(wav),
         "-l",
@@ -129,6 +131,8 @@ def run_whisper(
     ]
     if prompt:
         cmd += ["--prompt", prompt]
+    if extra_args:
+        cmd += list(extra_args)
     log(f"$ {' '.join(cmd)}")
     proc = subprocess.Popen(
         cmd,

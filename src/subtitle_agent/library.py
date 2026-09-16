@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .config import Settings
 from .frames import existing_frames
+from .recover import load_report as load_gaps_report
 from .subtitle import parse_srt
 from .transcribe import probe_duration, scan_videos
 
@@ -61,6 +62,7 @@ class Library:
             except Exception:
                 cue_count = 0
         frame_count = len(existing_frames(artifacts["frames_dir"]))
+        recovery = load_gaps_report(artifacts["gaps"])
         return {
             "path": rel,
             "name": video.name,
@@ -76,6 +78,10 @@ class Library:
             "cue_count": cue_count,
             "srt_mtime": srt_mtime,
             "wav_size": wav.stat().st_size if wav.is_file() else 0,
+            "recovery_regions": len(recovery.get("regions", [])) if recovery else 0,
+            "recovery_recovered": recovery.get("stats", {}).get("recovered_segments", 0)
+            if recovery
+            else 0,
         }
 
     def list_videos(self) -> list[dict]:

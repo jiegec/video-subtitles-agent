@@ -9,6 +9,7 @@
 - **结合视频画面截图**（多模态）与**资料 / 术语表**提高纠错准确率
 - 网页里预览、逐句编辑、保存，支持 0.5×–3× 倍速播放（快捷键 `[` / `]`）
 - **生成轨迹**：可视化 whisper 原文 → LLM 清洗 → 重排对齐的全过程，包括实际注入的上下文与每个 LLM 请求
+- **漏识别补齐**：检测 whisper 漏掉/听错的内容（时间缺口、稀疏、低置信）并针对性重转，作为「另一版识别」交给 LLM 合并
 - 最终生成与视频同目录的 `.srt`
 
 ## 快速开始
@@ -25,7 +26,8 @@ uv run subtitle-agent --port 9000
 2. 「上下文与资料」标签里填写视频说明、术语表，添加参考资料（PDF / Word / Markdown / 文本 / 网页链接，或直接上传），也可以**从其他视频复用配置**或**导入一个现成的 JSON 配置**
 3. 「生成设置」里设置每句最大字数等参数
 4. 点「全流程生成字幕」
-5. 在下方字幕编辑器里预览、修改、保存
+5. 如果发现漏识别/错听，点「④ 补齐漏识别→重排」，再在下方字幕编辑器里预览、修改、保存
+6. 「生成轨迹」标签可以看到 whisper 原文、注入的上下文、LLM 输入输出与前后 diff
 
 ## 依赖要求
 
@@ -60,6 +62,10 @@ cp .env.example .env
 | `FRAME_MAX_PER_BATCH` | 每个 LLM 请求最多附几张截图 | `4` |
 | `FRAME_MAX_COUNT` | 单个视频最多保留多少张截图（过长会自动拉大间隔） | `240` |
 | `CONTEXT_MAX_CHARS` | 资料注入上限（超出自动摘要） | `12000` |
+| `RECOVER_MIN_GAP` / `RECOVER_MIN_CPS` / `RECOVER_LOW_CONF_THRESHOLD` | 补齐漏识别的三类阈值 | `1.5` / `1.8` / `0.45` |
+| `RECOVER_SPARSE` / `RECOVER_LOW_CONF` | 是否启用稀疏 / 低置信检测 | `1` / `1` |
+| `RECOVER_MAX_REGIONS` | 单次最多重转多少个可疑区间 | `80` |
+| `RECOVER_MODEL` | 补转用的模型（不填则同 `WHISPER_MODEL`） | 空 |
 
 ## per-video 配置（JSON）
 
@@ -94,6 +100,7 @@ cp .env.example .env
 | `xxx.whisper.json` | whisper 转写结果（含 token 时间戳） |
 | `xxx.frames/` | 视频截图与 `manifest.json` |
 | `xxx.context.json` | 参考资料摘要缓存 |
+| `xxx.gaps.json` | 漏识别补齐报告（可疑区间与重转结果） |
 | `xxx.subtitle.json` | 本视频的工程配置（可复用/导入导出） |
 | `xxx.trajectory.json` | 生成轨迹（原始字幕 / 上下文 / LLM 输入输出 / 重排结果） |
 | `xxx.srt` | 最终字幕 |
@@ -113,6 +120,23 @@ cp .env.example .env
 | `GET /api/trajectory?path=` | 读取生成轨迹 |
 | `GET /api/frame?path=&name=` | 读取某张视频截图（缩略图用） |
 
+## 漏识别补齐（缺内容怎么办）
+
+LLM 只能基于你给它的文本纠错，无法凭空补回 whisper 根本没转出来的内容。
+所以补齐必须回到音频本身：检测「whisper 可能漏了」的区间，重新转写，再交给 LLM 合并。
+
+检测三类可疑区间：
+
+1. **时间缺口**：音频里有语音，但没有任何转写片段覆盖（整段被跳过）。用 `ffmpeg silencedetect` 求语音区间再减去已有转写。
+2. **稀疏片段**：片段覆盖了时间，但字数明显偏少（语速异常低），疑似漏词。
+3. **低置信片段**：whisper 自己的 token 概率低于阈值且连续成段，通常就是听错的地方。
+
+对每个区间：切出音频 → 单独重转（关闭上下文 `-mc 0`，可配置更大模型）→
+- 时间缺口直接插入时间轴；
+- 稀疏 / 低置信作为**另一版识别（`alt`）**交给 LLM，两个版本互补，避免直接替换丢内容。
+
+在网页里点「④ 补齐漏识别→重排」即可，结果写入 `xxx.gaps.json` 并在生成轨迹里展示。
+
 ## 时间轴是怎么保证正确的
 
 LLM 会删词、改字，因此不能直接沿用 whisper 的分句时间。做法是：
@@ -131,6 +155,7 @@ src/subtitle_agent/
   video_config.py    # per-video JSON 工程配置
   context.py         # 参考资料读取 / 摘要
   frames.py          # 视频截图
+  recover.py         # 漏识别检测与补转
   transcribe.py      # ffmpeg / whisper-cli
   llm.py             # OpenAI 兼容 LLM 客户端（支持多模态）
   subtitle.py        # SRT 读写 + 时间轴对齐/重排

@@ -12,10 +12,12 @@ from pathlib import Path
 from typing import Callable
 
 from . import frames as frames_mod
+from . import recover as recover_mod
 from .config import Settings
 from .context import build_reference, read_document
 from .frames import Frame
 from .llm import LLMClient, LLMError
+from .recover import load_merged_segments, load_report as load_gaps_report
 from .subtitle import (
     Cue,
     build_char_timeline,
@@ -30,12 +32,11 @@ from .transcribe import (
     build_initial_prompt,
     extract_wav,
     group_blocks,
-    load_segments,
     run_whisper,
 )
 from .video_config import VideoConfig
 
-VALID_STEPS = ("frames", "extract_audio", "transcribe", "clean")
+VALID_STEPS = ("recover", "frames", "extract_audio", "transcribe", "clean")
 
 
 # --------------------------------------------------------------------------- #
@@ -66,6 +67,7 @@ def clean_blocks(
     reference: str = "",
     frames: list[Frame] | None = None,
     frames_per_batch: int = 4,
+    alts: dict[int, str] | None = None,
 ) -> tuple[dict[int, str], list[dict]]:
     """对每个 block 调用 LLM 清洗，返回 ({block_index: cleaned_text}, batch_records)。
 
@@ -89,8 +91,19 @@ def clean_blocks(
     done = 0
     lock = threading.Lock()
 
+    alts = alts or {}
+
+    def make_items(batch: list[int]) -> list[dict]:
+        items = []
+        for i in batch:
+            item = {"id": i, "text": blocks[i].text}
+            if alts.get(i):
+                item["alt"] = alts[i]
+            items.append(item)
+        return items
+
     def process(batch: list[int]):
-        items = [{"id": i, "text": blocks[i].text} for i in batch]
+        items = make_items(batch)
         batch_frames: list[Frame] = []
         if frames:
             start = blocks[batch[0]].start
@@ -125,9 +138,7 @@ def clean_blocks(
                         "block_ids": batch,
                         "frames": frame_meta,
                         "attached_images": meta.get("attached_images", 0),
-                        "request_items": [
-                            {"id": i, "text": blocks[i].text} for i in batch
-                        ],
+                        "request_items": make_items(batch),
                         "request_text": meta.get("request_text", ""),
                         "response_text": meta.get("response_text", ""),
                         "cleaned": {
@@ -186,6 +197,7 @@ def generate_srt(
     frame_interval: int | None,
     frames_dir: Path,
     context_cache: Path,
+    gaps_path: Path,
     log: Callable[[str], None],
     progress: Callable[[int], None] | None = None,
     preloaded_frames: list[Frame] | None = None,
@@ -196,9 +208,13 @@ def generate_srt(
     interval = int(frame_interval or eff.frame_interval or settings.frame_interval)
 
     log(f"读取转写：{whisper_json.name}")
-    segments = load_segments(whisper_json)
+    gaps_report = load_gaps_report(gaps_path)
+    segments = load_merged_segments(whisper_json, gaps_report)
     if not segments:
         raise RuntimeError("转写结果为空，无法生成字幕")
+    if gaps_report:
+        rec = gaps_report.get("stats", {})
+        log(f"已合并漏识别补齐结果：+{rec.get('recovered_segments', 0)} 段")
     log(f"共 {len(segments)} 个语音片段")
     blocks = group_blocks(segments, block_chars=block_chars)
     log(f"合并为 {len(blocks)} 个文本块")
@@ -219,6 +235,9 @@ def generate_srt(
             )
 
     if use_llm:
+        alts = recover_mod.build_alts(blocks, gaps_report)
+        if alts:
+            log(f"有 {len(alts)} 个文本块带上了另一版识别结果（alt）供 LLM 参考")
         cleaned, batch_records = clean_blocks(
             settings,
             blocks,
@@ -228,8 +247,10 @@ def generate_srt(
             reference=reference,
             frames=frames,
             frames_per_batch=settings.frame_max_per_batch,
+            alts=alts,
         )
     else:
+        alts = {}
         cleaned = {i: block.text for i, block in enumerate(blocks)}
         batch_records = []
         if progress:
@@ -261,6 +282,8 @@ def generate_srt(
         reference,
         frames,
         interval,
+        gaps_report,
+        alts,
         max_chars=max_chars,
         min_duration=min_duration,
         use_llm=use_llm,
@@ -285,6 +308,8 @@ def _save_trajectory(
     reference: str,
     frames: list[Frame],
     interval: int,
+    gaps_report: dict | None,
+    alts: dict[int, str],
     *,
     max_chars: int,
     min_duration: float,
@@ -317,6 +342,7 @@ def _save_trajectory(
                 "cleaned_text": cleaned_text,
                 "diff": ops,
                 "batch": block_to_batch.get(i),
+                "alt_text": alts.get(i, ""),
                 "cues": [c.as_dict() for c in per_block_cues[i]] if i < len(per_block_cues) else [],
             }
         )
@@ -365,6 +391,7 @@ def _save_trajectory(
         "blocks": block_records,
         "batches": batch_records,
         "cues": [c.as_dict() for c in cues],
+        "recovery": _recovery_summary(gaps_report),
         "stats": {
             "segments": len(segments),
             "blocks": len(blocks),
@@ -377,6 +404,24 @@ def _save_trajectory(
     path = trace_path_for(srt_path)
     save_trace(path, trace)
     log(f"生成轨迹：{path.name}（{len(blocks)} 块 / {len(batch_records)} 个 LLM 请求）")
+
+
+def _recovery_summary(report: dict | None) -> dict | None:
+    if not report:
+        return None
+    regions = []
+    for region in report.get("regions") or []:
+        regions.append(
+            {
+                "start": region.get("start"),
+                "end": region.get("end"),
+                "duration": region.get("duration"),
+                "kind": region.get("kind"),
+                "original_text": region.get("original_text", ""),
+                "recovered_text": region.get("recovered_text", ""),
+            }
+        )
+    return {"params": report.get("params", {}), "stats": report.get("stats", {}), "regions": regions}
 
 
 # --------------------------------------------------------------------------- #
@@ -477,7 +522,85 @@ class JobManager:
                 def step_progress(value: int, base: int = base, span: float = span) -> None:
                     job.progress = min(99, int(base + span * value / 100))
 
-                if step == "frames":
+                if step == "recover":
+                    if not artifacts["wav"].is_file():
+                        raise RuntimeError("缺少音频，请先抽取音频")
+                    if not artifacts["whisper_json"].is_file():
+                        raise RuntimeError("缺少 whisper 转写结果，请先转写")
+                    eff = video_config.effective(settings.frame_interval)
+                    base_segments = load_merged_segments(artifacts["whisper_json"], None)
+                    min_gap = float(options.get("recover_min_gap", settings.recover_min_gap))
+                    min_cps = float(options.get("recover_min_cps", settings.recover_min_cps))
+                    low_conf_thr = float(
+                        options.get("recover_low_conf_threshold", settings.recover_low_conf_threshold)
+                    )
+                    use_sparse = bool(options.get("recover_sparse", settings.recover_sparse))
+                    use_low_conf = bool(options.get("recover_low_conf", settings.recover_low_conf))
+                    job.log(
+                        f"检测漏识别（噪声 {settings.recover_noise_db}dB，最短缺口 {min_gap}s，"
+                        f"低置信阈值 {low_conf_thr}）…"
+                    )
+                    speech = recover_mod.detect_speech_regions(
+                        settings,
+                        artifacts["wav"],
+                        settings.recover_noise_db,
+                        settings.recover_min_silence,
+                        job.log,
+                    )
+                    gaps = recover_mod.find_gaps(base_segments, speech, min_gap)
+                    sparse = (
+                        recover_mod.find_sparse(base_segments, min_cps=min_cps) if use_sparse else []
+                    )
+                    low_conf = (
+                        recover_mod.find_low_confidence(base_segments, threshold=low_conf_thr)
+                        if use_low_conf
+                        else []
+                    )
+                    regions = recover_mod.merge_regions([*gaps, *sparse, *low_conf])
+                    job.log(
+                        f"可疑区间：缺口 {len(gaps)}、稀疏 {len(sparse)}、低置信 {len(low_conf)}"
+                        f"；合并后 {len(regions)}"
+                    )
+                    if len(regions) > settings.recover_max_regions:
+                        job.log(f"可疑区间较多，只处理时长最长的 {settings.recover_max_regions} 个")
+                        regions.sort(key=lambda r: r.duration, reverse=True)
+                        regions = regions[: settings.recover_max_regions]
+                        regions.sort(key=lambda r: r.start)
+                    if regions:
+                        prompt = build_initial_prompt(settings, eff.glossary)
+                        recover_mod.recover_regions(
+                            settings,
+                            artifacts["wav"],
+                            regions,
+                            model=settings.recover_model,
+                            prompt=prompt,
+                            log=job.log,
+                            progress=step_progress,
+                        )
+                    report = recover_mod.build_report(
+                        settings,
+                        regions,
+                        {
+                            "noise_db": settings.recover_noise_db,
+                            "min_silence": settings.recover_min_silence,
+                            "min_gap": min_gap,
+                            "min_cps": min_cps,
+                            "sparse": use_sparse,
+                            "low_conf": use_low_conf,
+                            "low_conf_threshold": low_conf_thr,
+                            "max_regions": settings.recover_max_regions,
+                            "model": str(settings.recover_model or settings.whisper_model),
+                            "extra_args": ["-mc", "0"],
+                        },
+                    )
+                    recover_mod.save_report(artifacts["gaps"], report)
+                    stats = report["stats"]
+                    job.log(
+                        f"补齐完成：补回 {stats['recovered_segments']} 段 / "
+                        f"{stats['recovered_chars']} 字 → {artifacts['gaps'].name}"
+                    )
+                    step_progress(100)
+                elif step == "frames":
                     eff = video_config.effective(settings.frame_interval)
                     interval = int(options.get("frame_interval") or eff.frame_interval or settings.frame_interval)
                     if not options.get("use_frames", eff.use_frames):
@@ -536,6 +659,7 @@ class JobManager:
                         frame_interval=options.get("frame_interval"),
                         frames_dir=artifacts["frames_dir"],
                         context_cache=artifacts["context_cache"],
+                        gaps_path=artifacts["gaps"],
                         log=job.log,
                         progress=step_progress,
                         preloaded_frames=preloaded_frames,

@@ -101,10 +101,21 @@
             <label>LLM 分块字数
               <input type="number" id="blockChars" min="60" max="800" step="10" value="220" />
             </label>
+            <label>低置信阈值
+              <input type="number" id="recoverLowConf" min="0" max="1" step="0.05" value="0.45" />
+            </label>
+            <label>最短缺口(秒)
+              <input type="number" id="recoverMinGap" min="0.5" max="10" step="0.5" value="1.5" />
+            </label>
+            <label>语速下限(字/秒)
+              <input type="number" id="recoverMinCps" min="0.5" max="5" step="0.1" value="1.8" />
+            </label>
           </div>
           <div class="switch-list">
             <label class="checkbox"><input type="checkbox" id="useLlm" checked /> 使用 LLM 纠正</label>
             <label class="checkbox"><input type="checkbox" id="useFrames" checked /> 结合画面截图</label>
+            <label class="checkbox"><input type="checkbox" id="recoverLowConfOn" checked /> 补齐：检测低置信片段</label>
+            <label class="checkbox"><input type="checkbox" id="recoverSparseOn" checked /> 补齐：检测稀疏片段</label>
             <label class="checkbox"><input type="checkbox" id="force" /> 强制重跑（覆盖已有）</label>
           </div>
         </div>
@@ -114,7 +125,8 @@
             <button class="primary wide" id="btnFull">① 全流程生成字幕</button>
             <button id="btnClean">② 仅重新清洗/重排</button>
             <button id="btnTranscribe">③ 重新转写</button>
-            <button id="btnFrames">④ 仅抽取截图</button>
+            <button id="btnRecover">④ 补齐漏识别→重排</button>
+            <button id="btnFrames">⑤ 仅抽取截图</button>
             <button id="btnSave" disabled>保存字幕</button>
             <button id="btnDownload" disabled>下载 SRT</button>
             <button id="btnAddCue" class="wide">＋ 在播放处添加字幕</button>

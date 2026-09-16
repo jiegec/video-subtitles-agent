@@ -55,6 +55,14 @@ def get_config() -> dict:
         "frame_max_per_batch": settings.frame_max_per_batch,
         "context_max_chars": settings.context_max_chars,
         "config_suffix": CONFIG_SUFFIX,
+        "recover": {
+            "noise_db": settings.recover_noise_db,
+            "min_silence": settings.recover_min_silence,
+            "min_gap": settings.recover_min_gap,
+            "min_cps": settings.recover_min_cps,
+            "sparse": settings.recover_sparse,
+            "model": str(settings.recover_model or settings.whisper_model),
+        },
         "valid_steps": list(VALID_STEPS),
     }
 
@@ -262,6 +270,13 @@ def create_job(payload: dict = Body(...)) -> dict:
         "block_chars": int(payload.get("block_chars", settings.llm_block_chars)),
         "use_frames": payload.get("use_frames"),
         "frame_interval": payload.get("frame_interval"),
+        "recover_min_gap": float(payload.get("recover_min_gap", settings.recover_min_gap)),
+        "recover_min_cps": float(payload.get("recover_min_cps", settings.recover_min_cps)),
+        "recover_low_conf_threshold": float(
+            payload.get("recover_low_conf_threshold", settings.recover_low_conf_threshold)
+        ),
+        "recover_sparse": bool(payload.get("recover_sparse", settings.recover_sparse)),
+        "recover_low_conf": bool(payload.get("recover_low_conf", settings.recover_low_conf)),
         "force": bool(payload.get("force", False)),
     }
     try:

@@ -34,12 +34,18 @@
     maxChars: $("maxChars"),
     minDuration: $("minDuration"),
     blockChars: $("blockChars"),
+    recoverLowConf: $("recoverLowConf"),
+    recoverMinGap: $("recoverMinGap"),
+    recoverMinCps: $("recoverMinCps"),
+    recoverLowConfOn: $("recoverLowConfOn"),
+    recoverSparseOn: $("recoverSparseOn"),
     useLlm: $("useLlm"),
     useFrames: $("useFrames"),
     force: $("force"),
     btnFull: $("btnFull"),
     btnClean: $("btnClean"),
     btnTranscribe: $("btnTranscribe"),
+    btnRecover: $("btnRecover"),
     btnFrames: $("btnFrames"),
     btnSave: $("btnSave"),
     btnDownload: $("btnDownload"),
@@ -170,6 +176,13 @@
     els.maxChars.value = cfg.default_max_chars;
     els.minDuration.value = cfg.default_min_duration;
     els.blockChars.value = cfg.llm_block_chars;
+    if (cfg.recover) {
+      els.recoverLowConf.value = cfg.recover.low_conf_threshold;
+      els.recoverMinGap.value = cfg.recover.min_gap;
+      els.recoverMinCps.value = cfg.recover.min_cps;
+      els.recoverLowConfOn.checked = cfg.recover.low_conf !== false;
+      els.recoverSparseOn.checked = cfg.recover.sparse !== false;
+    }
     els.useLlm.checked = cfg.llm_enabled;
     els.ctxFrameInterval.value = cfg.frame_interval;
     els.llmBadge.textContent = cfg.llm_enabled ? `LLM: ${cfg.llm_model}` : "LLM 未配置";
@@ -201,6 +214,8 @@
       chips.push(`<span class="chip ${video.has_whisper ? "ok" : ""}">ASR</span>`);
       chips.push(`<span class="chip ${video.has_srt ? "ok" : "warn"}">${video.has_srt ? "SRT " + video.cue_count : "无字幕"}</span>`);
       if (video.duration) chips.push(`<span class="chip">${formatDuration(video.duration)}</span>`);
+      if (video.recovery_regions)
+        chips.push(`<span class="chip ok">补齐 ${video.recovery_recovered || video.recovery_regions}</span>`);
       item.innerHTML = `<div class="vname">${escapeHtml(video.name)}</div><div class="vmeta">${chips.join("")}</div>`;
       item.addEventListener("click", () => selectVideo(video.path));
       els.videoList.appendChild(item);
@@ -494,6 +509,9 @@
       `每句 ≤ ${params.max_chars ?? "-"} 字`,
       `截图 ${(ctx.frames || []).length} 张`,
     ];
+    if (data.recovery) {
+      chips.push(`补齐 <b>${(data.recovery.regions || []).length}</b> 处`);
+    }
 
     const info = [
       ["标题", ctx.title || "—"],
@@ -549,6 +567,32 @@
     </details>`;
 
     const batches = data.batches || [];
+
+    let recoveryCard = "";
+    if (data.recovery && (data.recovery.regions || []).length) {
+      const rr = data.recovery.stats || {};
+      const rp = data.recovery.params || {};
+      const rows = (data.recovery.regions || [])
+        .map((r) => {
+          const kind = { gap: "时间缺口", sparse: "稀疏片段", low_conf: "低置信" }[r.kind] || r.kind;
+          const rec = r.recovered_text
+            ? escapeHtml(r.recovered_text)
+            : '<span class="muted">未补回</span>';
+          const orig = r.original_text
+            ? `<div class="muted">原文：${escapeHtml(r.original_text)}</div>`
+            : "";
+          return `<div class="tb-cue"><span class="t">${formatTime(r.start)}</span><span class="x"><span class="chip">${kind}</span> ${rec}${orig}</span></div>`;
+        })
+        .join("");
+      recoveryCard = `<details class="trace-context">
+        <summary>🩹 漏识别补齐：补回 ${rr.recovered_segments || 0} 段 / ${rr.recovered_chars || 0} 字（共 ${data.recovery.regions.length} 处可疑区间）</summary>
+        <div class="tc-body">
+          <div class="trace-kv"><b>重转设置：</b>最短缺口 ${rp.min_gap ?? "—"}s · 语速下限 ${rp.min_cps ?? "—"} 字/s · 低置信阈值 ${rp.low_conf_threshold ?? "—"} · 模型 ${escapeHtml(String(rp.model || "—"))}</div>
+          <div class="tb-cues">${rows}</div>
+        </div>
+      </details>`;
+    }
+
     const blocksHtml = (data.blocks || [])
       .map((block) => {
         const del = (block.diff || [])
@@ -586,6 +630,7 @@
               <div class="tb-pane"><div class="tb-label">whisper 原始（删除/改写为红色）</div><div class="tb-text">${diffHtml(block.diff, "raw")}</div></div>
               <div class="tb-pane"><div class="tb-label">LLM 清洗后（新增/改写为绿/黄色）</div><div class="tb-text">${diffHtml(block.diff, "clean")}</div></div>
             </div>
+            ${block.alt_text ? `<div class="tb-pane" style="margin-top:8px"><div class="tb-label">另一版识别（alt，供 LLM 参考）</div><div class="tb-text">${escapeHtml(block.alt_text)}</div></div>` : ""}
             <div class="tb-cues">${cueList || '<span class="muted">（本块被全部删除）</span>'}</div>
             ${request}
           </div>
@@ -596,6 +641,7 @@
     els.trajectoryView.innerHTML = `
       <div class="trace-summary">${chips.map((c) => `<span class="chip">${c}</span>`).join("")}</div>
       ${contextCard}
+      ${recoveryCard}
       ${blocksHtml || '<div class="trace-empty">没有文本块</div>'}`;
   }
 
@@ -828,6 +874,11 @@
       use_llm: els.useLlm.checked,
       use_frames: els.useFrames.checked,
       frame_interval: Number(els.ctxFrameInterval.value) || state.config.frame_interval,
+      recover_min_gap: Number(els.recoverMinGap.value) || 1.5,
+      recover_min_cps: Number(els.recoverMinCps.value) || 1.8,
+      recover_low_conf_threshold: Number(els.recoverLowConf.value) || 0.45,
+      recover_low_conf: els.recoverLowConfOn.checked,
+      recover_sparse: els.recoverSparseOn.checked,
       force: els.force.checked,
     };
   }
@@ -889,7 +940,9 @@
   }
 
   function setButtonsBusy(busy) {
-    [els.btnFull, els.btnClean, els.btnTranscribe, els.btnFrames].forEach((b) => (b.disabled = busy));
+    [els.btnFull, els.btnClean, els.btnTranscribe, els.btnRecover, els.btnFrames].forEach(
+      (b) => (b.disabled = busy)
+    );
   }
 
   // ---------------------------------------------------------------- 播放器
@@ -931,6 +984,7 @@
   els.btnFull.addEventListener("click", () => startJob(["extract_audio", "transcribe", "frames", "clean"]));
   els.btnClean.addEventListener("click", () => startJob(["clean"]));
   els.btnTranscribe.addEventListener("click", () => startJob(["transcribe", "clean"]));
+  els.btnRecover.addEventListener("click", () => startJob(["recover", "clean"]));
   els.btnFrames.addEventListener("click", () => startJob(["frames"]));
   els.btnSaveConfig.addEventListener("click", saveVideoConfig);
   els.btnPreviewCtx.addEventListener("click", previewContext);

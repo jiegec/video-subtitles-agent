@@ -100,6 +100,16 @@ class Settings:
     frame_max_count: int
     context_max_chars: int
 
+    recover_noise_db: float
+    recover_min_silence: float
+    recover_min_gap: float
+    recover_min_cps: float
+    recover_sparse: bool
+    recover_low_conf: bool
+    recover_low_conf_threshold: float
+    recover_max_regions: int
+    recover_model: Path | None
+
     # ---- 派生路径 ----
     @property
     def has_llm(self) -> bool:
@@ -116,6 +126,7 @@ class Settings:
             "frames_dir": video.parent / (video.stem + ".frames"),
             "context_cache": video.parent / (video.stem + ".context.json"),
             "trajectory": video.parent / (video.stem + ".trajectory.json"),
+            "gaps": video.parent / (video.stem + ".gaps.json"),
             "config": video.parent / (video.stem + CONFIG_SUFFIX),
         }
 
@@ -148,6 +159,13 @@ def load_settings() -> Settings:
     if not model.is_absolute():
         model = (REPO_ROOT / model).resolve()
 
+    recover_model_raw = get("RECOVER_MODEL", "")
+    recover_model: Path | None = None
+    if recover_model_raw:
+        recover_model = Path(recover_model_raw).expanduser()
+        if not recover_model.is_absolute():
+            recover_model = (REPO_ROOT / recover_model).resolve()
+
     return Settings(
         project_dir=project_dir,
         whisper_bin=get("WHISPER_BIN", "whisper-cli"),
@@ -172,6 +190,15 @@ def load_settings() -> Settings:
         frame_max_per_batch=int(get("FRAME_MAX_PER_BATCH", "4")),
         frame_max_count=int(get("FRAME_MAX_COUNT", "240")),
         context_max_chars=int(get("CONTEXT_MAX_CHARS", "12000")),
+        recover_noise_db=float(get("RECOVER_NOISE_DB", "-30")),
+        recover_min_silence=float(get("RECOVER_MIN_SILENCE", "0.4")),
+        recover_min_gap=float(get("RECOVER_MIN_GAP", "1.5")),
+        recover_min_cps=float(get("RECOVER_MIN_CPS", "1.8")),
+        recover_sparse=get("RECOVER_SPARSE", "1").lower() not in {"0", "false", "no", "off"},
+        recover_low_conf=get("RECOVER_LOW_CONF", "1").lower() not in {"0", "false", "no", "off"},
+        recover_low_conf_threshold=float(get("RECOVER_LOW_CONF_THRESHOLD", "0.45")),
+        recover_max_regions=int(get("RECOVER_MAX_REGIONS", "80")),
+        recover_model=recover_model,
     )
 
 
@@ -197,4 +224,13 @@ _KNOWN_KEYS = {
     "FRAME_MAX_PER_BATCH",
     "FRAME_MAX_COUNT",
     "CONTEXT_MAX_CHARS",
+    "RECOVER_NOISE_DB",
+    "RECOVER_MIN_SILENCE",
+    "RECOVER_MIN_GAP",
+    "RECOVER_MIN_CPS",
+    "RECOVER_SPARSE",
+    "RECOVER_LOW_CONF",
+    "RECOVER_LOW_CONF_THRESHOLD",
+    "RECOVER_MAX_REGIONS",
+    "RECOVER_MODEL",
 }
