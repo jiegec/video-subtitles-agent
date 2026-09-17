@@ -1150,7 +1150,12 @@
       updateJob(job);
       pollJob();
     } catch (err) {
-      toast("启动失败：" + err.message, "error");
+      if (String(err.message).includes("已有任务在运行")) {
+        toast("该视频已有任务在运行，正在显示进度");
+        await resumeJob();
+      } else {
+        toast("启动失败：" + err.message, "error");
+      }
     }
   }
 

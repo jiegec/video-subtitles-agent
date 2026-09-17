@@ -273,9 +273,11 @@ def create_job(payload: dict = Body(...)) -> dict:
     if not steps:
         raise HTTPException(status_code=400, detail="steps 无效")
     try:
-        library.resolve(path)
+        video_path = library.resolve(path)
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not video_path.is_file():
+        raise HTTPException(status_code=404, detail=f"视频不存在：{path}")
     options = {
         "max_chars": int(payload.get("max_chars", settings.default_max_chars)),
         "min_duration": float(payload.get("min_duration", settings.default_min_duration)),
