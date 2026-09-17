@@ -104,23 +104,10 @@
             <label>LLM 分块字数
               <input type="number" id="blockChars" min="60" max="800" step="10" value="220" />
             </label>
-            <label>低置信阈值
-              <input type="number" id="recoverLowConf" min="0" max="1" step="0.05" value="0.45" />
-            </label>
-            <label>最短缺口(秒)
-              <input type="number" id="recoverMinGap" min="0.5" max="10" step="0.5" value="1.5" />
-            </label>
-            <label>语速下限(字/秒)
-              <input type="number" id="recoverMinCps" min="0.5" max="5" step="0.1" value="1.8" />
-            </label>
           </div>
-          <div class="switch-list">
-            <label class="checkbox"><input type="checkbox" id="useLlm" checked /> 使用 LLM 纠正</label>
-            <label class="checkbox"><input type="checkbox" id="useFrames" checked /> 结合画面截图</label>
-            <label class="checkbox"><input type="checkbox" id="recoverLowConfOn" checked /> 补齐：检测低置信片段</label>
-            <label class="checkbox"><input type="checkbox" id="recoverSparseOn" checked /> 补齐：检测稀疏片段</label>
-            <label class="checkbox"><input type="checkbox" id="force" /> 强制重跑（覆盖已有）</label>
-          </div>
+          <p class="hint" style="margin: 8px 0 0">
+            每次都会重新生成 wav 与转写，并自动完成 LLM 纠错、画面截图与漏识别补齐。
+          </p>
         </div>
 
         <div class="panel-block">
@@ -164,7 +151,6 @@
           <label class="wide">术语表 <span class="muted">每行一条：正确写法 = 易误听写法1, 易误听写法2 | 说明</span>
             <textarea id="ctxGlossary" rows="4" placeholder="哈希表 = 哈西表 | 数据结构"></textarea>
           </label>
-          <label class="checkbox"><input type="checkbox" id="ctxUseFrames" checked /> 使用画面截图</label>
           <label>截图间隔(秒)
             <input type="number" id="ctxFrameInterval" min="5" max="600" step="5" value="45" />
           </label>
@@ -194,6 +180,7 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  <div id="diffModal" class="modal hidden"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

@@ -13,6 +13,8 @@ import difflib
 import re
 from dataclasses import dataclass
 
+from .trajectory import char_diff
+
 # 断句优先级：句末 > 句中 > 空格
 STRONG_BREAKS = "。！？!?；;…"
 WEAK_BREAKS = "，,、：:）)】」》"
@@ -309,3 +311,73 @@ def normalize_cues(cues: list[Cue]) -> list[Cue]:
             if cues[i - 1].end <= cues[i - 1].start:
                 cues[i - 1].end = cues[i - 1].start + 0.1
     return cues
+
+
+# --------------------------------------------------------------------------- #
+# 新旧字幕对比 / 合并
+# --------------------------------------------------------------------------- #
+def _overlap(a: Cue, b: Cue) -> float:
+    return max(0.0, min(a.end, b.end) - max(a.start, b.start))
+
+
+def diff_cues(old: list[Cue], new: list[Cue]) -> dict:
+    """按时间对齐两版字幕，返回逐条变化。"""
+    used: set[int] = set()
+    changes: list[dict] = []
+    added = removed = changed = equal = 0
+    for cue in new:
+        best = -1
+        best_overlap = 0.0
+        for j, candidate in enumerate(old):
+            if j in used:
+                continue
+            overlap = _overlap(candidate, cue)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best = j
+        duration = min(cue.end - cue.start, old[best].end - old[best].start) if best >= 0 else 0.0
+        if best >= 0 and best_overlap >= 0.25 * max(duration, 0.1):
+            used.add(best)
+            previous = old[best]
+            if previous.text.strip() == cue.text.strip():
+                equal += 1
+            else:
+                changed += 1
+                changes.append(
+                    {
+                        "type": "changed",
+                        "old": previous.as_dict(),
+                        "new": cue.as_dict(),
+                        "diff": char_diff(previous.text, cue.text),
+                    }
+                )
+        else:
+            added += 1
+            changes.append({"type": "added", "old": None, "new": cue.as_dict()})
+    for j, previous in enumerate(old):
+        if j not in used:
+            removed += 1
+            changes.append({"type": "removed", "old": previous.as_dict(), "new": None})
+    changes.sort(key=lambda c: (c["new"] or c["old"])["start"])
+    return {
+        "stats": {
+            "total_old": len(old),
+            "total_new": len(new),
+            "added": added,
+            "removed": removed,
+            "changed": changed,
+            "equal": equal,
+        },
+        "changes": changes,
+    }
+
+
+def merge_cue_lists(new: list[Cue], old: list[Cue], min_overlap: float = 0.5) -> list[Cue]:
+    """以新版为主，把旧版中“没被新版覆盖”的字幕补回来。"""
+    merged = list(new)
+    for previous in old:
+        span = max(previous.end - previous.start, 1e-6)
+        if any(_overlap(previous, cue) >= min_overlap * span for cue in new):
+            continue
+        merged.append(Cue(previous.start, previous.end, previous.text))
+    return normalize_cues(merged)

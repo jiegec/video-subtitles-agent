@@ -33,7 +33,9 @@ from .transcribe import (
     build_initial_prompt,
     extract_wav,
     group_blocks,
+    probe_mean_volume,
     run_whisper,
+    strip_hallucinations,
 )
 from .video_config import VideoConfig
 
@@ -221,6 +223,7 @@ def generate_srt(
     if gaps_report:
         rec = gaps_report.get("stats", {})
         log(f"已合并漏识别补齐结果：+{rec.get('recovered_segments', 0)} 段")
+    segments, hallucinated = strip_hallucinations(segments, log=log)
     log(f"共 {len(segments)} 个语音片段")
     blocks = group_blocks(segments, block_chars=block_chars)
     log(f"合并为 {len(blocks)} 个文本块")
@@ -301,6 +304,7 @@ def generate_srt(
         gaps_report,
         alts,
         llm_events,
+        hallucinated,
         max_chars=max_chars,
         min_duration=min_duration,
         use_llm=use_llm,
@@ -328,6 +332,7 @@ def _save_trajectory(
     gaps_report: dict | None,
     alts: dict[int, str],
     llm_events: list[dict],
+    hallucinated: int,
     *,
     max_chars: int,
     min_duration: float,
@@ -453,6 +458,7 @@ def _save_trajectory(
             "cues": len(cues),
             "deleted_chars": total_deleted,
             "inserted_chars": total_inserted,
+            "hallucinated_segments": hallucinated,
             "llm_calls": llm_totals["calls"],
             "llm_total_tokens": llm_totals["total_tokens"],
             "llm_seconds": llm_totals["seconds"],
@@ -563,12 +569,6 @@ class JobManager:
             options = job.options
             steps = list(job.steps)
 
-            if "transcribe" in steps and not artifacts["wav"].is_file():
-                if "extract_audio" not in steps:
-                    steps = ["extract_audio", *steps]
-            if "clean" in steps and "transcribe" not in steps and not artifacts["whisper_json"].is_file():
-                raise RuntimeError("缺少 whisper 转写结果，请先转写")
-
             preloaded_frames: list[Frame] | None = None
             total = len(steps)
             for index, step in enumerate(steps):
@@ -591,8 +591,8 @@ class JobManager:
                     low_conf_thr = float(
                         options.get("recover_low_conf_threshold", settings.recover_low_conf_threshold)
                     )
-                    use_sparse = bool(options.get("recover_sparse", settings.recover_sparse))
-                    use_low_conf = bool(options.get("recover_low_conf", settings.recover_low_conf))
+                    use_sparse = True
+                    use_low_conf = True
                     job.log(
                         f"检测漏识别（噪声 {settings.recover_noise_db}dB，最短缺口 {min_gap}s，"
                         f"低置信阈值 {low_conf_thr}）…"
@@ -659,46 +659,42 @@ class JobManager:
                     step_progress(100)
                 elif step == "frames":
                     eff = video_config.effective(settings.frame_interval)
-                    interval = int(options.get("frame_interval") or eff.frame_interval or settings.frame_interval)
-                    if not options.get("use_frames", eff.use_frames):
-                        job.log("已在配置中关闭画面上下文，跳过抽帧")
-                    else:
-                        preloaded_frames = frames_mod.ensure_frames(
-                            settings,
-                            video,
-                            artifacts["frames_dir"],
-                            interval,
-                            job.log,
-                            force=bool(options.get("force")),
-                        )
+                    interval = int(
+                        options.get("frame_interval") or eff.frame_interval or settings.frame_interval
+                    )
+                    preloaded_frames = frames_mod.ensure_frames(
+                        settings,
+                        video,
+                        artifacts["frames_dir"],
+                        interval,
+                        job.log,
+                        force=True,
+                    )
                     step_progress(100)
                 elif step == "extract_audio":
-                    force = bool(options.get("force"))
-                    if artifacts["wav"].is_file() and not force:
-                        job.log("已存在 wav，跳过抽取（勾选强制可覆盖）")
-                    else:
-                        extract_wav(settings, video, artifacts["wav"], job.log)
+                    extract_wav(settings, video, artifacts["wav"], job.log)
                     step_progress(100)
                 elif step == "transcribe":
-                    force = bool(options.get("force"))
-                    if artifacts["whisper_json"].is_file() and not force:
-                        job.log("已存在转写结果，跳过（勾选强制可覆盖）")
-                    else:
-                        if not artifacts["wav"].is_file():
-                            extract_wav(settings, video, artifacts["wav"], job.log)
-                        prefix = artifacts["whisper_json"].with_suffix("")
-                        eff = video_config.effective(settings.frame_interval)
-                        prompt = build_initial_prompt(settings, eff.glossary)
-                        if prompt:
-                            job.log(f"whisper 提示词：{prompt[:100]}")
-                        run_whisper(
-                            settings,
-                            artifacts["wav"],
-                            prefix,
-                            job.log,
-                            progress=step_progress,
-                            prompt=prompt,
-                        )
+                    if not artifacts["wav"].is_file():
+                        extract_wav(settings, video, artifacts["wav"], job.log)
+                    mean_db = probe_mean_volume(settings, artifacts["wav"])
+                    if mean_db is not None:
+                        job.log(f"音频平均音量：{mean_db:.1f} dB")
+                        if mean_db < -45:
+                            job.log("⚠️ 音频电平偏低，转写质量可能受影响")
+                    prefix = artifacts["whisper_json"].with_suffix("")
+                    eff = video_config.effective(settings.frame_interval)
+                    prompt = build_initial_prompt(settings, eff.glossary)
+                    if prompt:
+                        job.log(f"whisper 提示词：{prompt[:100]}")
+                    run_whisper(
+                        settings,
+                        artifacts["wav"],
+                        prefix,
+                        job.log,
+                        progress=step_progress,
+                        prompt=prompt,
+                    )
                     step_progress(100)
                 elif step == "clean":
                     generate_srt(
@@ -710,9 +706,9 @@ class JobManager:
                         artifacts["srt"],
                         max_chars=int(options.get("max_chars", settings.default_max_chars)),
                         min_duration=float(options.get("min_duration", settings.default_min_duration)),
-                        use_llm=bool(options.get("use_llm", True)),
+                        use_llm=True,
                         block_chars=int(options.get("block_chars", settings.llm_block_chars)),
-                        use_frames=options.get("use_frames"),
+                        use_frames=True,
                         frame_interval=options.get("frame_interval"),
                         frames_dir=artifacts["frames_dir"],
                         context_cache=artifacts["context_cache"],

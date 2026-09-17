@@ -18,6 +18,7 @@
     docs: [],
     view: "edit",
     saveTimer: null,
+    preGenHadSrt: false,
   };
 
   const els = {
@@ -35,14 +36,6 @@
     maxChars: $("maxChars"),
     minDuration: $("minDuration"),
     blockChars: $("blockChars"),
-    recoverLowConf: $("recoverLowConf"),
-    recoverMinGap: $("recoverMinGap"),
-    recoverMinCps: $("recoverMinCps"),
-    recoverLowConfOn: $("recoverLowConfOn"),
-    recoverSparseOn: $("recoverSparseOn"),
-    useLlm: $("useLlm"),
-    useFrames: $("useFrames"),
-    force: $("force"),
     btnFull: $("btnFull"),
     btnDownload: $("btnDownload"),
     btnAddCue: $("btnAddCue"),
@@ -57,7 +50,6 @@
     cfgTitle: $("cfgTitle"),
     ctxContext: $("ctxContext"),
     ctxGlossary: $("ctxGlossary"),
-    ctxUseFrames: $("ctxUseFrames"),
     ctxFrameInterval: $("ctxFrameInterval"),
     docList: $("docList"),
     docCount: $("docCount"),
@@ -83,6 +75,7 @@
     editView: $("editView"),
     trajectoryView: $("trajectoryView"),
     toast: $("toast"),
+    diffModal: $("diffModal"),
   };
 
   // ---------------------------------------------------------------- 工具
@@ -194,14 +187,6 @@
     els.maxChars.value = cfg.default_max_chars;
     els.minDuration.value = cfg.default_min_duration;
     els.blockChars.value = cfg.llm_block_chars;
-    if (cfg.recover) {
-      els.recoverLowConf.value = cfg.recover.low_conf_threshold;
-      els.recoverMinGap.value = cfg.recover.min_gap;
-      els.recoverMinCps.value = cfg.recover.min_cps;
-      els.recoverLowConfOn.checked = cfg.recover.low_conf !== false;
-      els.recoverSparseOn.checked = cfg.recover.sparse !== false;
-    }
-    els.useLlm.checked = cfg.llm_enabled;
     els.ctxFrameInterval.value = cfg.frame_interval;
     els.llmBadge.textContent = cfg.llm_enabled ? `LLM: ${cfg.llm_model}` : "LLM 未配置";
     els.llmBadge.className = "badge " + (cfg.llm_enabled ? "on" : "off");
@@ -538,6 +523,103 @@
     }
   }
 
+  // ---------------------------------------------------------------- 新旧字幕对比
+  async function showDiffModal() {
+    state.preGenHadSrt = false;
+    if (!state.current) return;
+    try {
+      const data = await api(`/api/backups?path=${encodeURIComponent(state.current.path)}`);
+      const list = data.backups || [];
+      if (!list.length) return;
+      const against = list[0].name; // 最新备份 = 本次生成前的版本
+      const diff = await api(
+        `/api/subtitles/diff?path=${encodeURIComponent(
+          state.current.path
+        )}&against=${encodeURIComponent(against)}`
+      );
+      renderDiffModal(diff, against);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function renderDiffModal(data, against) {
+    const s = data.stats || {};
+    const changes = data.changes || [];
+    const rows = changes
+      .slice(0, 300)
+      .map((c) => {
+        if (c.type === "added")
+          return `<div class="diff-row"><div class="d-old muted">（新增）</div><div class="d-new">${escapeHtml(
+            c.new.text
+          )}</div></div>`;
+        if (c.type === "removed")
+          return `<div class="diff-row"><div class="d-old">${escapeHtml(
+            c.old.text
+          )}</div><div class="d-new muted">（已删除）</div></div>`;
+        return `<div class="diff-row"><div class="d-old">${diffHtml(
+          c.diff,
+          "raw"
+        )}</div><div class="d-new">${diffHtml(c.diff, "clean")}</div></div>`;
+      })
+      .join("");
+    const more =
+      changes.length > 300
+        ? `<div class="muted" style="padding:8px 0">仅显示前 300 处，共 ${changes.length} 处差异</div>`
+        : "";
+    els.diffModal.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-head"><strong>字幕对比：旧版 → 新版</strong><button class="icon-btn" data-act="close">✕</button></div>
+        <div class="modal-body">
+          <div class="muted" style="margin-bottom:10px">旧 ${s.total_old ?? "-"} 条 → 新 ${
+      s.total_new ?? "-"
+    } 条 · 新增 ${s.added ?? 0} · 删除 ${s.removed ?? 0} · 修改 ${s.changed ?? 0} · 相同 ${
+      s.equal ?? 0
+    }</div>
+          ${rows || '<div class="muted" style="padding:24px;text-align:center">两版内容一致</div>'}
+          ${more}
+        </div>
+        <div class="modal-foot">
+          <button data-act="merge">合并新旧</button>
+          <button data-act="old">保留旧版</button>
+          <button class="primary" data-act="new">用新版覆盖</button>
+        </div>
+      </div>`;
+    els.diffModal.classList.remove("hidden");
+    els.diffModal.querySelectorAll("button[data-act]").forEach((button) =>
+      button.addEventListener("click", () => diffAction(button.dataset.act, against))
+    );
+  }
+
+  async function diffAction(action, against) {
+    if (action === "close" || action === "new") {
+      els.diffModal.classList.add("hidden");
+      return;
+    }
+    if (!state.current) return;
+    try {
+      if (action === "merge") {
+        const result = await api("/api/subtitles/merge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: state.current.path, against }),
+        });
+        toast(`已合并，共 ${result.count} 条`, "ok");
+      } else if (action === "old") {
+        await api("/api/backups/restore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: state.current.path, name: against }),
+        });
+        toast("已保留旧版", "ok");
+      }
+      await Promise.all([loadCues(), refreshStatus()]);
+    } catch (err) {
+      toast("操作失败：" + err.message, "error");
+    }
+    els.diffModal.classList.add("hidden");
+  }
+
   // ---------------------------------------------------------------- 生成轨迹
   function setView(view) {
     state.view = view;
@@ -845,9 +927,7 @@
       els.cfgTitle.value = state.projectConfig.title || "";
       els.ctxContext.value = state.projectConfig.context || "";
       els.ctxGlossary.value = glossaryToText(eff.glossary || []);
-      els.ctxUseFrames.checked = eff.use_frames !== false;
       els.ctxFrameInterval.value = eff.frame_interval || state.config.frame_interval;
-      els.useFrames.checked = eff.use_frames !== false;
       renderDocs();
       els.btnSaveConfig.disabled = true;
       els.btnPreviewCtx.disabled = false;
@@ -928,7 +1008,6 @@
       context: els.ctxContext.value,
       glossary: textToGlossary(els.ctxGlossary.value),
       documents: state.docs,
-      use_frames: els.ctxUseFrames.checked,
       frame_interval: Number(els.ctxFrameInterval.value) || 45,
     };
     try {
@@ -939,7 +1018,6 @@
       });
       state.projectConfig = data.config;
       els.btnSaveConfig.disabled = true;
-      els.useFrames.checked = els.ctxUseFrames.checked;
       els.configPath.textContent = "本视频配置：" + data.config_path;
       await Promise.all([refreshStatus(), loadReusableConfigs()]);
       toast("配置已保存到 " + data.config_path, "ok");
@@ -1023,21 +1101,14 @@
       max_chars: Number(els.maxChars.value) || 18,
       min_duration: Number(els.minDuration.value) || 0.8,
       block_chars: Number(els.blockChars.value) || 220,
-      use_llm: els.useLlm.checked,
-      use_frames: els.useFrames.checked,
       frame_interval: Number(els.ctxFrameInterval.value) || state.config.frame_interval,
-      recover_min_gap: Number(els.recoverMinGap.value) || 1.5,
-      recover_min_cps: Number(els.recoverMinCps.value) || 1.8,
-      recover_low_conf_threshold: Number(els.recoverLowConf.value) || 0.45,
-      recover_low_conf: els.recoverLowConfOn.checked,
-      recover_sparse: els.recoverSparseOn.checked,
-      force: els.force.checked,
     };
   }
 
   async function startJob() {
     if (!state.current) return toast("请先选择视频", "error");
     await flushSave();
+    state.preGenHadSrt = state.cues.length > 0;
     try {
       const job = await api("/api/jobs", {
         method: "POST",
@@ -1081,6 +1152,7 @@
           await Promise.all([refreshStatus(), loadCues()]);
           if (state.view === "trajectory") loadTrajectory();
           if (!els.backupPanel.classList.contains("hidden")) loadBackups();
+          if (state.preGenHadSrt) showDiffModal();
           return;
         }
         if (job.status === "error") {
@@ -1161,7 +1233,7 @@
     if (els.docFile.files[0]) uploadDocument(els.docFile.files[0]);
     els.docFile.value = "";
   });
-  [els.cfgTitle, els.ctxContext, els.ctxGlossary, els.ctxUseFrames, els.ctxFrameInterval]
+  [els.cfgTitle, els.ctxContext, els.ctxGlossary, els.ctxFrameInterval]
     .forEach((el) => el.addEventListener("input", markConfigDirty));
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => {

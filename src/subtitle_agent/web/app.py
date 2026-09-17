@@ -18,7 +18,7 @@ from ..context import build_reference, read_document
 from ..library import Library
 from ..llm import LLMClient
 from ..pipeline import VALID_STEPS, JobManager
-from ..subtitle import Cue, cues_to_srt, normalize_cues, parse_srt
+from ..subtitle import Cue, cues_to_srt, diff_cues, merge_cue_lists, normalize_cues, parse_srt
 from ..trajectory import load_trace
 from ..video_config import CONFIG_SUFFIX, VideoConfig, config_path_for, list_configs
 
@@ -279,18 +279,8 @@ def create_job(payload: dict = Body(...)) -> dict:
     options = {
         "max_chars": int(payload.get("max_chars", settings.default_max_chars)),
         "min_duration": float(payload.get("min_duration", settings.default_min_duration)),
-        "use_llm": bool(payload.get("use_llm", True)),
         "block_chars": int(payload.get("block_chars", settings.llm_block_chars)),
-        "use_frames": payload.get("use_frames"),
         "frame_interval": payload.get("frame_interval"),
-        "recover_min_gap": float(payload.get("recover_min_gap", settings.recover_min_gap)),
-        "recover_min_cps": float(payload.get("recover_min_cps", settings.recover_min_cps)),
-        "recover_low_conf_threshold": float(
-            payload.get("recover_low_conf_threshold", settings.recover_low_conf_threshold)
-        ),
-        "recover_sparse": bool(payload.get("recover_sparse", settings.recover_sparse)),
-        "recover_low_conf": bool(payload.get("recover_low_conf", settings.recover_low_conf)),
-        "force": bool(payload.get("force", False)),
     }
     try:
         job = jobs.submit(path, steps, options)
@@ -393,6 +383,53 @@ def download_subtitles(path: str = Query(...)) -> FileResponse:
         media_type="application/x-subrip",
         filename=srt.name,
     )
+
+
+def _read_cues(path: Path) -> list[Cue]:
+    if not path.is_file():
+        return []
+    try:
+        return parse_srt(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+@app.get("/api/subtitles/diff")
+def subtitles_diff(path: str = Query(...), against: str = Query(...)) -> dict:
+    """对比当前 SRT 与某个历史版本（备份名）。"""
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    srt = settings.artifact_paths(path)["srt"]
+    old_path = _resolve_backup(srt, against)
+    if old_path is None:
+        raise HTTPException(status_code=404, detail="备份不存在")
+    return diff_cues(_read_cues(old_path), _read_cues(srt))
+
+
+@app.post("/api/subtitles/merge")
+def subtitles_merge(payload: dict = Body(...)) -> dict:
+    """以当前（新版）为准，把旧备份中被覆盖不到的字幕补回来。"""
+    path = payload.get("path")
+    against = payload.get("against")
+    if not path or not against:
+        raise HTTPException(status_code=400, detail="缺少 path 或 against")
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    srt = settings.artifact_paths(path)["srt"]
+    old_path = _resolve_backup(srt, against)
+    if old_path is None:
+        raise HTTPException(status_code=404, detail="备份不存在")
+    merged = merge_cue_lists(_read_cues(srt), _read_cues(old_path))
+    backup_srt(srt, keep=settings.srt_backup_keep)
+    srt.parent.mkdir(parents=True, exist_ok=True)
+    tmp = srt.with_suffix(".srt.tmp")
+    tmp.write_text(cues_to_srt(merged), encoding="utf-8")
+    tmp.replace(srt)
+    return {"ok": True, "count": len(merged), "srt_name": srt.name}
 
 
 # --------------------------------------------------------------------------- #

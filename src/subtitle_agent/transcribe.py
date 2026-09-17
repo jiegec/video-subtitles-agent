@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
@@ -45,10 +46,57 @@ class Block:
 
 
 # --------------------------------------------------------------------------- #
-# ffmpeg
+# ffmpeg：抽音频（含反相检测）
 # --------------------------------------------------------------------------- #
+def _mean_volume(
+    settings: Settings, media: Path, pan: str | None = None, duration: float | None = None
+) -> float | None:
+    """用 ffmpeg volumedetect 估算平均音量（dB）。pan 形如 "c0=c0"，用于只取某个声道。"""
+    audio_filter = f"pan=mono|{pan},volumedetect" if pan else "volumedetect"
+    cmd = [settings.ffmpeg_bin, "-hide_banner", "-nostats"]
+    if duration:
+        cmd += ["-t", str(duration)]
+    cmd += ["-i", str(media), "-af", audio_filter, "-f", "null", "-"]
+    try:
+        proc = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600
+        )
+        match = _VOLUME_RE.search(proc.stdout or "")
+        return float(match.group(1)) if match else None
+    except Exception:
+        return None
+
+
+def probe_mean_volume(settings: Settings, wav: Path) -> float | None:
+    return _mean_volume(settings, wav)
+
+
+def choose_mono_filter(
+    settings: Settings, media: Path, log: LogFn = _noop, sample: float = 120.0
+) -> str | None:
+    """选单声道混音方式，避免左右声道反相时 `-ac 1` 相互抵消。
+
+    返回 pan 表达式（如 "c0=c0"），None 表示直接 `-ac 1` 平均即可。
+    """
+    left = _mean_volume(settings, media, "c0=c0", sample)
+    right = _mean_volume(settings, media, "c0=c1", sample)
+    if left is None or right is None:
+        return None
+    summed = _mean_volume(settings, media, "c0=0.5*c0+0.5*c1", sample)
+    if summed is None:
+        return None
+    loudest = max(left, right)
+    # 正常同相：混单与单声道差不多（<=4dB）；一强一弱会低 ~6dB；反相会低很多
+    if summed >= loudest - 4:
+        return None
+    channel = "左" if left >= right else "右"
+    log(f"⚠️ 检测到左右声道反相（左 {left:.1f}dB / 右 {right:.1f}dB / 混单 {summed:.1f}dB），改用{channel}声道提取")
+    return "c0=c0" if left >= right else "c0=c1"
+
+
 def extract_wav(settings: Settings, video: Path, wav: Path, log: LogFn = _noop) -> Path:
     wav.parent.mkdir(parents=True, exist_ok=True)
+    pan = choose_mono_filter(settings, video, log)
     cmd = [
         settings.ffmpeg_bin,
         "-hide_banner",
@@ -58,14 +106,12 @@ def extract_wav(settings: Settings, video: Path, wav: Path, log: LogFn = _noop) 
         "-i",
         str(video),
         "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-c:a",
-        "pcm_s16le",
-        str(wav),
     ]
+    if pan:
+        cmd += ["-af", f"pan=mono|{pan}"]
+    else:
+        cmd += ["-ac", "1"]
+    cmd += ["-ar", "16000", "-c:a", "pcm_s16le", str(wav)]
     log(f"$ {' '.join(cmd)}")
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if proc.returncode != 0:
@@ -102,6 +148,7 @@ def probe_duration(settings: Settings, media: Path) -> float | None:
 # whisper-cli
 # --------------------------------------------------------------------------- #
 _PROGRESS_RE = re.compile(r"progress\s*=\s*(\d+)%")
+_VOLUME_RE = re.compile(r"mean_volume:\s*(-?[\d.]+) dB")
 
 
 def run_whisper(
@@ -179,6 +226,59 @@ def run_whisper(
 # --------------------------------------------------------------------------- #
 # 解析与分块
 # --------------------------------------------------------------------------- #
+_HALLUCINATION_STRIP = re.compile(r"[\s，。、！？!?,.—–\-…：:；;\"'“”‘’()（）\[\]【】《》<>]")
+
+
+def _normalize_text(text: str) -> str:
+    return _HALLUCINATION_STRIP.sub("", text or "")
+
+
+def strip_hallucinations(
+    segments: list[Segment],
+    min_count: int = 5,
+    ratio: float = 0.12,
+    log: LogFn = _noop,
+) -> tuple[list[Segment], int]:
+    """去掉 whisper 在静音/噪声上产生的重复幻觉。
+
+    同一句文本（去标点后）出现次数超过 max(min_count, ratio * 总段数)，就认为整句都是幻觉，
+    全部丢弃；另外折叠连续出现 >=4 次的相同文本。返回（过滤后的片段, 丢弃数量）。
+    """
+    if not segments:
+        return segments, 0
+    total = len(segments)
+    counts = Counter(_normalize_text(seg.text) for seg in segments)
+    threshold = max(min_count, int(total * ratio))
+    repeated = {text for text, count in counts.items() if text and count > threshold}
+
+    kept: list[Segment] = []
+    run_text: str | None = None
+    run_count = 0
+    for seg in segments:
+        text = _normalize_text(seg.text)
+        if text in repeated:
+            continue
+        if text and text == run_text:
+            run_count += 1
+            if run_count >= 4:
+                continue  # 连续重复，折叠掉后续的
+        else:
+            run_text, run_count = text, 1
+        kept.append(seg)
+
+    removed = total - len(kept)
+    if removed:
+        example, count = counts.most_common(1)[0]
+        log(
+            f"⚠️ 检测到 whisper 重复幻觉：忽略 {removed}/{total} 段"
+            f"（如“{example[:20]}”重复 {count} 次）"
+        )
+    if not kept:
+        kept = segments[:1]
+        log("⚠️ 所有片段都被判为幻觉，至少保留第一段")
+    return kept, removed
+
+
 def load_segments(whisper_json: Path) -> list[Segment]:
     data = json.loads(whisper_json.read_text(encoding="utf-8"))
     segments: list[Segment] = []
