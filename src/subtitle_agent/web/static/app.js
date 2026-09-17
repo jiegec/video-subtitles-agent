@@ -596,6 +596,8 @@
     const s = data.stats || {};
     const params = data.params || {};
     const ctx = data.context || {};
+    const llm = data.llm || {};
+    const lt = llm.totals || {};
     const videoPath = data.video || (state.current && state.current.path) || "";
 
     const chips = [
@@ -611,6 +613,11 @@
     ];
     if (data.recovery) {
       chips.push(`补齐 <b>${(data.recovery.regions || []).length}</b> 处`);
+    }
+    if (lt.calls) {
+      chips.push(`LLM <b>${lt.calls}</b> 次`);
+      chips.push(`${lt.total_tokens || 0} tokens`);
+      chips.push(`${lt.seconds || 0}s`);
     }
 
     const info = [
@@ -668,6 +675,46 @@
 
     const batches = data.batches || [];
 
+    let llmCard = "";
+    if (llm.calls && llm.calls.length) {
+      const rows = llm.calls
+        .map((call, i) => {
+          const u = call.usage || {};
+          const stage =
+            call.stage === "digest" ? "资料摘要(digest)" : `清洗 batch #${call.batch}`;
+          const tok =
+            `in ${u.prompt_tokens ?? "—"} / out ${u.completion_tokens ?? "—"}` +
+            (u.reasoning_tokens ? ` / 思考 ${u.reasoning_tokens}` : "") +
+            (u.cached_tokens ? ` / 缓存 ${u.cached_tokens}` : "");
+          const note = call.error
+            ? `<span class="d-del">${escapeHtml(call.error)}</span>`
+            : call.cached
+            ? "缓存命中（未调用）"
+            : `${call.finish_reason || ""}${call.attempts > 1 ? ` · 重试 ${call.attempts - 1} 次` : ""}${
+                call.attached_images ? ` · ${call.attached_images} 张截图` : ""
+              }`;
+          return `<div class="llm-row"><span class="lidx">${i + 1}</span><span class="lstage">${escapeHtml(
+            stage
+          )}</span><span class="ltok">${tok}</span><span class="ltime">${call.elapsed ?? 0}s</span><span class="lnote">${note}</span></div>`;
+        })
+        .join("");
+      llmCard = `<details class="trace-context">
+        <summary>🤖 LLM 调用：${lt.calls} 次 · ${lt.total_tokens || 0} tokens · ${
+        lt.seconds || 0
+      }s${lt.failed ? ` · 失败 ${lt.failed}` : ""}</summary>
+        <div class="tc-body">
+          <div class="trace-kv"><b>模型：</b>${escapeHtml(
+            String(llm.model || "—")
+          )} · <b>输入/输出：</b>${lt.prompt_tokens || 0} / ${
+        lt.completion_tokens || 0
+      } tokens${lt.reasoning_tokens ? ` · 思考 ${lt.reasoning_tokens}` : ""}${
+        lt.cached_tokens ? ` · 缓存命中 ${lt.cached_tokens}` : ""
+      }</div>
+          <div class="llm-table">${rows}</div>
+        </div>
+      </details>`;
+    }
+
     let recoveryCard = "";
     if (data.recovery && (data.recovery.regions || []).length) {
       const rr = data.recovery.stats || {};
@@ -709,7 +756,11 @@
         if (batch) {
           const bFrames = (batch.frames || []).map((f) => frameImg(videoPath, f.name, f.time)).join("");
           request = `<details class="tb-request">
-            <summary>查看实际请求（batch #${block.batch}，附 ${batch.attached_images || 0} 张截图）</summary>
+            <summary>查看实际请求（batch #${block.batch}，附 ${batch.attached_images || 0} 张截图${
+            batch.elapsed ? `，${batch.elapsed}s` : ""
+          }${
+            batch.usage && batch.usage.total_tokens ? `，${batch.usage.total_tokens} tokens` : ""
+          }）</summary>
             ${batch.error ? `<div class="trace-kv">⚠️ 该批失败，已回退原文：${escapeHtml(batch.error)}</div>` : ""}
             ${bFrames ? `<h4>本批使用的截图</h4><div class="frames-grid">${bFrames}</div>` : ""}
             <h4>发送的 user 消息（含参考上下文与待处理文本）</h4>
@@ -740,6 +791,7 @@
 
     els.trajectoryView.innerHTML = `
       <div class="trace-summary">${chips.map((c) => `<span class="chip">${c}</span>`).join("")}</div>
+      ${llmCard}
       ${contextCard}
       ${recoveryCard}
       ${blocksHtml || '<div class="trace-empty">没有文本块</div>'}`;

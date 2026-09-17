@@ -142,6 +142,11 @@ def clean_blocks(
                         "request_items": make_items(batch),
                         "request_text": meta.get("request_text", ""),
                         "response_text": meta.get("response_text", ""),
+                        "usage": meta.get("usage", {}),
+                        "elapsed": meta.get("elapsed", 0.0),
+                        "model": meta.get("model"),
+                        "finish_reason": meta.get("finish_reason"),
+                        "attempts": meta.get("attempts", 1),
                         "cleaned": {
                             str(i): cleaned.get(i, blocks[i].text) for i in batch
                         },
@@ -222,11 +227,18 @@ def generate_srt(
 
     reference = ""
     frames: list[Frame] = []
+    llm_events: list[dict] = []
     if use_llm and settings.has_llm:
         client = LLMClient(settings)
         try:
             reference = build_reference(
-                settings, eff, settings.project_dir, context_cache, client=client, log=log
+                settings,
+                eff,
+                settings.project_dir,
+                context_cache,
+                client=client,
+                log=log,
+                telemetry=llm_events,
             )
         finally:
             client.close()
@@ -288,6 +300,7 @@ def generate_srt(
         interval,
         gaps_report,
         alts,
+        llm_events,
         max_chars=max_chars,
         min_duration=min_duration,
         use_llm=use_llm,
@@ -314,6 +327,7 @@ def _save_trajectory(
     interval: int,
     gaps_report: dict | None,
     alts: dict[int, str],
+    llm_events: list[dict],
     *,
     max_chars: int,
     min_duration: float,
@@ -358,6 +372,37 @@ def _save_trajectory(
             {"raw": raw, "found": result is not None, "chars": len(result[1]) if result else 0}
         )
 
+    llm_calls = list(llm_events)
+    for batch_index, record in enumerate(batch_records):
+        llm_calls.append(
+            {
+                "stage": "clean",
+                "batch": batch_index,
+                "block_ids": record.get("block_ids", []),
+                "model": record.get("model"),
+                "usage": record.get("usage", {}),
+                "elapsed": record.get("elapsed", 0.0),
+                "finish_reason": record.get("finish_reason"),
+                "attempts": record.get("attempts", 1),
+                "attached_images": record.get("attached_images", 0),
+                "error": record.get("error"),
+            }
+        )
+
+    def _usage_sum(key: str) -> int:
+        return sum(int((call.get("usage") or {}).get(key) or 0) for call in llm_calls)
+
+    llm_totals = {
+        "calls": len(llm_calls),
+        "failed": sum(1 for call in llm_calls if call.get("error")),
+        "prompt_tokens": _usage_sum("prompt_tokens"),
+        "completion_tokens": _usage_sum("completion_tokens"),
+        "total_tokens": _usage_sum("total_tokens"),
+        "reasoning_tokens": _usage_sum("reasoning_tokens"),
+        "cached_tokens": _usage_sum("cached_tokens"),
+        "seconds": round(sum(float(call.get("elapsed") or 0) for call in llm_calls), 2),
+    }
+
     trace = {
         "version": 1,
         "video": rel_path,
@@ -396,6 +441,11 @@ def _save_trajectory(
         "batches": batch_records,
         "cues": [c.as_dict() for c in cues],
         "recovery": _recovery_summary(gaps_report),
+        "llm": {
+            "model": settings.llm_model if settings.has_llm else None,
+            "calls": llm_calls,
+            "totals": llm_totals,
+        },
         "stats": {
             "segments": len(segments),
             "blocks": len(blocks),
@@ -403,6 +453,9 @@ def _save_trajectory(
             "cues": len(cues),
             "deleted_chars": total_deleted,
             "inserted_chars": total_inserted,
+            "llm_calls": llm_totals["calls"],
+            "llm_total_tokens": llm_totals["total_tokens"],
+            "llm_seconds": llm_totals["seconds"],
         },
     }
     path = trace_path_for(srt_path)

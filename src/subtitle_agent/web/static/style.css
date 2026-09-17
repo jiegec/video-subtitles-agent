@@ -294,6 +294,18 @@ details.tb-request > summary { font-size: 12px; color: var(--accent); cursor: po
 .gloss-item { font-size: 11px; background: var(--bg-3); border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px; }
 .gloss-item em { color: var(--warn); font-style: normal; }
 .trace-empty { color: var(--muted); padding: 30px; text-align: center; line-height: 1.8; }
+.llm-table { display: flex; flex-direction: column; margin-top: 8px; }
+.llm-row { display: grid; grid-template-columns: 30px 150px minmax(0, 1fr) 64px minmax(0, 1.1fr); gap: 8px; font-size: 12px; padding: 5px 0; border-bottom: 1px solid #1b2028; align-items: center; }
+.llm-row:last-child { border-bottom: none; }
+.llm-row .lidx { color: var(--muted); font-family: var(--mono); }
+.llm-row .lstage { color: var(--accent); }
+.llm-row .ltok { font-family: var(--mono); font-size: 11px; color: #b9c2d0; }
+.llm-row .ltime { font-family: var(--mono); font-size: 11px; color: var(--warn); text-align: right; }
+.llm-row .lnote { font-size: 11px; color: var(--muted); word-break: break-all; }
+
+@media (max-width: 720px) {
+  .llm-row { grid-template-columns: 24px 1fr; grid-auto-rows: auto; }
+}
 
 @media (max-width: 720px) {
   .trace-grid { grid-template-columns: 1fr; }

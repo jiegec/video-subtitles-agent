@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -88,6 +89,32 @@ def _image_part(path) -> dict:
     return {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{data}"}}
 
 
+@dataclass
+class ChatResult:
+    content: str
+    usage: dict
+    elapsed: float
+    model: str
+    finish_reason: str | None = None
+    attempts: int = 1
+
+
+def _usage_summary(raw: Any) -> dict:
+    """把不同服务商的 usage 归一化，便于展示。"""
+    if not isinstance(raw, dict):
+        return {}
+    prompt_details = raw.get("prompt_tokens_details") or {}
+    completion_details = raw.get("completion_tokens_details") or {}
+    return {
+        "prompt_tokens": raw.get("prompt_tokens"),
+        "completion_tokens": raw.get("completion_tokens"),
+        "total_tokens": raw.get("total_tokens"),
+        "reasoning_tokens": completion_details.get("reasoning_tokens"),
+        "cached_tokens": raw.get("prompt_cache_hit_tokens")
+        or prompt_details.get("cached_tokens"),
+    }
+
+
 class LLMClient:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -119,9 +146,12 @@ class LLMClient:
             payload["reasoning_effort"] = effort
         return payload
 
-    def chat(self, user_content, max_tokens: int | None = None, temperature: float = 0.2) -> str:
+    def chat_result(
+        self, user_content, max_tokens: int | None = None, temperature: float = 0.2
+    ) -> ChatResult:
         payload = self._payload(user_content, max_tokens, temperature)
         last_error: Exception | None = None
+        started = time.time()
         for attempt in range(1, 4):
             try:
                 response = self._client.post("/chat/completions", json=payload)
@@ -146,12 +176,22 @@ class LLMClient:
                         )
                 if choice.get("finish_reason") == "length" and '"items"' not in content:
                     raise LLMError("模型输出被截断，未得到完整 JSON")
-                return content
+                return ChatResult(
+                    content=content,
+                    usage=_usage_summary(data.get("usage")),
+                    elapsed=time.time() - started,
+                    model=data.get("model") or self.settings.llm_model,
+                    finish_reason=choice.get("finish_reason"),
+                    attempts=attempt,
+                )
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
                 if attempt < 3:
                     time.sleep(1.5 * attempt)
         raise LLMError(f"LLM 调用失败：{last_error}")
+
+    def chat(self, user_content, max_tokens: int | None = None, temperature: float = 0.2) -> str:
+        return self.chat_result(user_content, max_tokens, temperature).content
 
     def clean_items(
         self,
@@ -165,7 +205,16 @@ class LLMClient:
         meta 记录实际发送的请求文本与模型原始输出，供 trajectory 展示。
         """
         if not items:
-            return {}, {"request_text": "", "response_text": "", "attached_images": 0}
+            return {}, {
+                "request_text": "",
+                "response_text": "",
+                "attached_images": 0,
+                "usage": {},
+                "elapsed": 0.0,
+                "model": self.settings.llm_model,
+                "finish_reason": None,
+                "attempts": 0,
+            }
         image_paths = image_paths or []
         sections: list[str] = []
         if reference:
@@ -190,7 +239,8 @@ class LLMClient:
         else:
             user_content = request_text
 
-        raw = self.chat(user_content)
+        result = self.chat_result(user_content)
+        raw = result.content
         parsed = _extract_json(raw)
 
         results: dict[int, str] = {}
@@ -215,5 +265,10 @@ class LLMClient:
             "request_text": request_text,
             "response_text": raw,
             "attached_images": attached,
+            "usage": result.usage,
+            "elapsed": round(result.elapsed, 2),
+            "model": result.model,
+            "finish_reason": result.finish_reason,
+            "attempts": result.attempts,
         }
         return results, meta

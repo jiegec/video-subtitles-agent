@@ -122,12 +122,15 @@ def build_digest(
     docs: list[tuple[str, str]],
     cache_path: Path,
     log=lambda _: None,
+    telemetry: list | None = None,
 ) -> dict:
     key = _digest_key(eff, docs)
     if cache_path.is_file():
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             if cached.get("key") == key and cached.get("digest"):
+                if telemetry is not None:
+                    telemetry.append({"stage": "digest", "cached": True})
                 return cached["digest"]
         except Exception:
             pass
@@ -142,9 +145,26 @@ def build_digest(
         materials.append(f"===== 资料《{name}》 =====\n{text}")
 
     try:
-        raw = client.chat(DIGEST_PROMPT + "\n\n" + "\n\n".join(materials))
         from .llm import _extract_json
 
+        prompt = DIGEST_PROMPT + "\n\n" + "\n\n".join(materials)
+        if hasattr(client, "chat_result"):
+            result = client.chat_result(prompt)
+            raw = result.content
+            if telemetry is not None:
+                telemetry.append(
+                    {
+                        "stage": "digest",
+                        "cached": False,
+                        "model": result.model,
+                        "usage": result.usage,
+                        "elapsed": round(result.elapsed, 2),
+                        "finish_reason": result.finish_reason,
+                        "attempts": result.attempts,
+                    }
+                )
+        else:
+            raw = client.chat(prompt)
         digest = _extract_json(raw)
         if not isinstance(digest, dict):
             raise ValueError("摘要格式不正确")
@@ -169,6 +189,7 @@ def build_reference(
     cache_path: Path,
     client=None,
     log=lambda _: None,
+    telemetry: list | None = None,
 ) -> str:
     """生成注入到 LLM 提示里的参考上下文文本。"""
     docs = load_documents(project_dir, eff.documents, log)
@@ -178,7 +199,7 @@ def build_reference(
     summary = ""
     doc_block = ""
     if docs and total > settings.context_max_chars and client is not None:
-        digest = build_digest(client, eff, docs, cache_path, log)
+        digest = build_digest(client, eff, docs, cache_path, log, telemetry=telemetry)
         summary = digest.get("summary", "") or ""
         for term in digest.get("terms", []) or []:
             if not isinstance(term, dict) or not term.get("term"):
