@@ -563,7 +563,7 @@
     } catch (err) {
       els.trajectoryView.innerHTML = `<div class="trace-empty">${escapeHtml(
         err.message
-      )}<br><span class="muted">运行一次「全流程生成字幕」或「仅重新清洗/重排」后即可查看轨迹。</span></div>`;
+      )}<br><span class="muted">运行一次「全流程生成字幕」后即可查看轨迹。</span></div>`;
     }
   }
 

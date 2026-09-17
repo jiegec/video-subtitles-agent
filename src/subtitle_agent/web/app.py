@@ -32,6 +32,17 @@ app = FastAPI(title="Video Subtitle Agent")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+@app.middleware("http")
+async def no_cache_static(request: Request, call_next):
+    """页面与静态资源不强缓存：代码更新后普通刷新即可生效，不需要强制刷新。"""
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 # --------------------------------------------------------------------------- #
 # 页面
 # --------------------------------------------------------------------------- #
