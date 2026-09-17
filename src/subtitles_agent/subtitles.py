@@ -15,11 +15,22 @@ from dataclasses import dataclass
 
 from .trajectory import char_diff
 
-# 断句优先级：句末 > 句中 > 空格
+# 断点字符：句末 > 句中 > 空格/换行
 STRONG_BREAKS = "。！？!?；;…"
-WEAK_BREAKS = "，,、：:）)】」》"
-SPACE_BREAKS = " "
-TRAILING_PUNCT = "。，、；：！？!?…）)】」》〉"
+WEAK_BREAKS = "，,、：:"
+SPACE_BREAKS = " \t\n"
+ALL_BREAKS = STRONG_BREAKS + WEAK_BREAKS + SPACE_BREAKS
+# 行尾不应出现的收尾标点 / 行首不应出现的开标点
+CLOSING_PUNCT = "。，、；：！？!?…）)】」》〉”’\"'"
+OPENING_PUNCT = "（(【「《〈“‘\"'"
+# 没标点时，优先在这些连接词之前断句（相当于中文的“词/小句边界”）
+CLAUSE_STARTS = (
+    "所以", "但是", "不过", "然后", "那么", "因为", "如果", "而且", "并且",
+    "因此", "于是", "接着", "首先", "其次", "最后", "同时", "另外", "例如",
+    "比如", "也就是说", "换句话说", "总之", "其实", "当然", "可是", "还有",
+    "至于", "关于", "对于", "为了", "虽然", "尽管", "只要", "只有", "无论",
+)
+MIN_CUE_CHARS = 4
 
 _SRT_TIME_RE = re.compile(
     r"(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})"
@@ -185,32 +196,93 @@ def align_times(
 # --------------------------------------------------------------------------- #
 # 按最大字数切分
 # --------------------------------------------------------------------------- #
+def _latest_break(text: str, min_pos: int, max_pos: int) -> int | None:
+    """在 [min_pos, max_pos] 里从后往前找最近的断点，返回断点下一字符的下标。
+
+    断点包括标点之后，以及连接词之前（让下一行从“所以/但是”等词开始）。
+    """
+    for k in range(max_pos, min_pos - 1, -1):
+        if text[k - 1] in ALL_BREAKS:
+            return k
+        for word in CLAUSE_STARTS:
+            if text.startswith(word, k):
+                return k
+    return None
+
+
+def _adjust_break(
+    text: str, start: int, brk: int, min_chars: int, hard_max: int, n: int
+) -> int:
+    """微调断点：收尾标点归上一行、左括号不留行尾、不切开英文单词/数字。"""
+    while brk < n and brk < hard_max and text[brk] in CLOSING_PUNCT:
+        brk += 1
+    while brk - start > min_chars and text[brk - 1] in OPENING_PUNCT:
+        brk -= 1
+    if (
+        brk < n
+        and brk > start
+        and text[brk - 1].isascii()
+        and text[brk - 1].isalnum()
+        and text[brk].isascii()
+        and text[brk].isalnum()
+    ):
+        word_end = brk
+        while word_end < n and text[word_end].isascii() and text[word_end].isalnum():
+            word_end += 1
+        if word_end <= hard_max:
+            brk = word_end  # 往后到词尾
+        else:
+            word_start = brk
+            while (
+                word_start > start
+                and text[word_start - 1].isascii()
+                and text[word_start - 1].isalnum()
+            ):
+                word_start -= 1
+            if word_start - start >= min_chars:
+                brk = word_start  # 往前到词首，宁可短一点也不切开单词
+            elif word_start == start:
+                brk = word_end  # 这个单词比上限还长，整词成行，硬切反而更难读
+    return brk
+
+
 def split_spans(text: str, max_chars: int) -> list[tuple[int, int]]:
+    """按最大字数切分，尽量在标点/连接词/英文单词边界处断开。
+
+    - 优先在 [start+min_chars, start+max_chars] 内**靠近上限**的断点切；
+    - 没有断点则向后最多看 slack 个字找一个自然断点，避免硬切；
+    - 仍没有才硬切，但不切开英文单词、不让行尾停在左括号。
+    """
+    max_chars = max(1, int(max_chars))
+    min_chars = min(max(MIN_CUE_CHARS, max_chars // 3), max_chars)
+    slack = max(2, max_chars // 3)
     spans: list[tuple[int, int]] = []
     n = len(text)
     i = 0
     while i < n:
-        while i < n and text[i] in " \t":
+        while i < n and text[i] in " \t\n":
             i += 1
         if i >= n:
             break
         if n - i <= max_chars:
             spans.append((i, n))
             break
-        limit = min(i + max_chars, n)
-        brk = None
-        for charset in (STRONG_BREAKS, WEAK_BREAKS, SPACE_BREAKS):
-            for k in range(limit, i + 1, -1):
-                if text[k - 1] in charset:
-                    brk = k
-                    break
-            if brk is not None:
-                break
+        limit = i + max_chars
+        hard_max = min(limit + slack, n)
+        brk = _latest_break(text, i + min_chars, limit)
+        if brk is None:
+            brk = _latest_break(text, limit + 1, hard_max)
         if brk is None:
             brk = limit
-            # 硬切时把紧随其后的收尾标点并进上一句，避免下一句以标点开头
-            while brk < n and text[brk] in TRAILING_PUNCT:
-                brk += 1
+        brk = _adjust_break(text, i, brk, min_chars, hard_max, n)
+        # 剩余尾巴太短就并进来，避免出现孤零零的一两个字
+        if n - brk < min_chars and n - i <= hard_max - i:
+            brk = n
+        if brk >= n:
+            spans.append((i, n))
+            break
+        if brk <= i:
+            brk = min(i + max_chars, n)
         spans.append((i, brk))
         i = brk
     return spans
@@ -281,10 +353,14 @@ def merge_short_cues(
     for cue in cues[1:]:
         last = merged[-1]
         combined = last.text + cue.text
+        very_short = len(cue.text) <= 2 or len(last.text) <= 2
+        # 极短（1~2 字）字幕即使隔得远一点也尽量并进去，避免一闪而过的一两个字
+        allowed_gap = max(gap, 1.5) if very_short else gap
+        allowed_chars = max_chars + 2 if len(cue.text) <= 2 else max_chars
         if (
             (len(cue.text) <= min_chars or len(last.text) <= min_chars)
-            and cue.start - last.end <= gap
-            and len(combined) <= max_chars
+            and cue.start - last.end <= allowed_gap
+            and len(combined) <= allowed_chars
         ):
             last.text = combined
             last.end = cue.end

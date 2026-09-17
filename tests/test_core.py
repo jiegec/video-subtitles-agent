@@ -60,6 +60,29 @@ def test_split_spans_hard_cut_keeps_trailing_punct():
     assert not any("一二三四五六七八九十。下一句"[a:b].startswith("。") for a, b in spans[1:])
 
 
+def test_split_spans_no_tiny_lines():
+    # 早期出现的句号不应被当成断点（否则会出现很短的句子）
+    text = "你好。这是一个很长的句子，还有更多内容，继续讲下去"
+    chunks = [text[a:b].strip() for a, b in split_spans(text, 10)]
+    assert all(len(c) >= 4 for c in chunks)
+    assert chunks[0].startswith("你好。")
+
+
+def test_split_spans_prefers_natural_break():
+    text = "你好。这是一个很长的句子，还有更多"
+    chunks = [text[a:b].strip() for a, b in split_spans(text, 10)]
+    assert chunks[0].endswith("，")
+    assert chunks[0] != "你好。"
+
+
+def test_split_spans_keeps_ascii_word_whole():
+    text = "然后我们看一下这个testEnglishWord非常重要继续讲下去"
+    chunks = [text[a:b].strip() for a, b in split_spans(text, 10)]
+    assert "testEnglishWord" in chunks
+    assert "testEnglis" not in chunks
+    assert "hWord" not in chunks
+
+
 def test_reflow_timing_within_bounds_and_monotonic():
     timeline = [(ch, i * 0.2, (i + 1) * 0.2) for i, ch in enumerate("你好世界")]
     cues = reflow("你好世界", timeline, 0.0, 0.8, max_chars=2, min_duration=0.05)
