@@ -64,9 +64,12 @@
               </select>
             </label>
             <label class="checkbox small"><input type="checkbox" id="followPlay" checked /> 跟随播放</label>
+            <span class="save-status" id="saveStatus"></span>
+            <button class="icon-btn" id="btnHistory" title="历史版本">历史</button>
             <button class="icon-btn" id="btnUndo" title="撤销">↶</button>
           </div>
         </div>
+        <div id="backupPanel" class="backup-panel hidden"></div>
         <div id="editView" class="edit-view">
           <div class="table-head">
             <span>#</span><span>开始</span><span>结束</span><span>文本</span><span></span>
@@ -122,14 +125,9 @@
 
         <div class="panel-block">
           <div class="actions">
-            <button class="primary wide" id="btnFull">① 全流程生成字幕</button>
-            <button id="btnClean">② 仅重新清洗/重排</button>
-            <button id="btnTranscribe">③ 重新转写</button>
-            <button id="btnRecover">④ 补齐漏识别→重排</button>
-            <button id="btnFrames">⑤ 仅抽取截图</button>
-            <button id="btnSave" disabled>保存字幕</button>
+            <button class="primary wide" id="btnFull">全流程生成字幕</button>
             <button id="btnDownload" disabled>下载 SRT</button>
-            <button id="btnAddCue" class="wide">＋ 在播放处添加字幕</button>
+            <button id="btnAddCue">＋ 在播放处添加字幕</button>
           </div>
         </div>
 

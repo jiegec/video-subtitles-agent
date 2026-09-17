@@ -5,6 +5,7 @@ __pycache__/
 .uv/
 *.wav
 *.srt
+*.backups/
 *.trajectory.json
 project/
 ggml-*.bin

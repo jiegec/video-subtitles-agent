@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import shutil
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..backup import backup_srt, backups_dir_for, list_backups
 from ..config import load_settings
 from ..context import build_reference, read_document
 from ..library import Library
@@ -359,6 +361,7 @@ def save_subtitles(payload: dict = Body(...)) -> dict:
     cues = normalize_cues(cues)
     srt = settings.artifact_paths(path)["srt"]
     srt.parent.mkdir(parents=True, exist_ok=True)
+    backup_srt(srt, keep=settings.srt_backup_keep, min_interval=settings.srt_backup_interval)
     tmp = srt.with_suffix(".srt.tmp")
     tmp.write_text(cues_to_srt(cues), encoding="utf-8")
     tmp.replace(srt)
@@ -379,6 +382,79 @@ def download_subtitles(path: str = Query(...)) -> FileResponse:
         media_type="application/x-subrip",
         filename=srt.name,
     )
+
+
+# --------------------------------------------------------------------------- #
+# SRT 历史版本
+# --------------------------------------------------------------------------- #
+def _resolve_backup(srt: Path, name: str) -> Path | None:
+    if not name or "/" in name or "\\" in name or not name.endswith(".srt"):
+        return None
+    if not name.startswith(srt.stem + "-"):
+        return None
+    target = backups_dir_for(srt) / name
+    return target if target.is_file() else None
+
+
+@app.get("/api/backups")
+def get_backups(path: str = Query(...)) -> dict:
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    srt = settings.artifact_paths(path)["srt"]
+    return {"backups": list_backups(srt), "srt_name": srt.name}
+
+
+@app.get("/api/backups/download")
+def download_backup(path: str = Query(...), name: str = Query(...)) -> FileResponse:
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    srt = settings.artifact_paths(path)["srt"]
+    target = _resolve_backup(srt, name)
+    if target is None:
+        raise HTTPException(status_code=404, detail="备份不存在")
+    return FileResponse(target, media_type="application/x-subrip", filename=target.name)
+
+
+@app.post("/api/backups/restore")
+def restore_backup(payload: dict = Body(...)) -> dict:
+    path = payload.get("path")
+    name = payload.get("name")
+    if not path or not name:
+        raise HTTPException(status_code=400, detail="缺少 path 或 name")
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    srt = settings.artifact_paths(path)["srt"]
+    target = _resolve_backup(srt, name)
+    if target is None:
+        raise HTTPException(status_code=404, detail="备份不存在")
+    backup_srt(srt, keep=settings.srt_backup_keep)
+    srt.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(target, srt)
+    return {"ok": True, "srt_name": srt.name}
+
+
+@app.post("/api/backups/delete")
+def delete_backup(payload: dict = Body(...)) -> dict:
+    path = payload.get("path")
+    name = payload.get("name")
+    if not path or not name:
+        raise HTTPException(status_code=400, detail="缺少 path 或 name")
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    srt = settings.artifact_paths(path)["srt"]
+    target = _resolve_backup(srt, name)
+    if target is None:
+        raise HTTPException(status_code=404, detail="备份不存在")
+    target.unlink(missing_ok=True)
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #

@@ -13,6 +13,7 @@ from typing import Callable
 
 from . import frames as frames_mod
 from . import recover as recover_mod
+from .backup import backup_srt
 from .config import Settings
 from .context import build_reference, read_document
 from .frames import Frame
@@ -257,6 +258,9 @@ def generate_srt(
             progress(100)
 
     cues, per_block_cues = build_cues(blocks, cleaned, max_chars, min_duration)
+    backed_up = backup_srt(srt_path, keep=settings.srt_backup_keep)
+    if backed_up:
+        log(f"已备份旧字幕：{backed_up.name}")
     srt_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = srt_path.with_suffix(".srt.tmp")
     tmp.write_text(cues_to_srt(cues), encoding="utf-8")

@@ -17,6 +17,7 @@
     projectConfig: null,
     docs: [],
     view: "edit",
+    saveTimer: null,
   };
 
   const els = {
@@ -43,14 +44,12 @@
     useFrames: $("useFrames"),
     force: $("force"),
     btnFull: $("btnFull"),
-    btnClean: $("btnClean"),
-    btnTranscribe: $("btnTranscribe"),
-    btnRecover: $("btnRecover"),
-    btnFrames: $("btnFrames"),
-    btnSave: $("btnSave"),
     btnDownload: $("btnDownload"),
     btnAddCue: $("btnAddCue"),
     btnUndo: $("btnUndo"),
+    btnHistory: $("btnHistory"),
+    saveStatus: $("saveStatus"),
+    backupPanel: $("backupPanel"),
     followPlay: $("followPlay"),
     playbackRate: $("playbackRate"),
     // 上下文 / 资料
@@ -163,9 +162,28 @@
     toast("已撤销");
   }
 
+  function setSaveStatus(text) {
+    els.saveStatus.textContent = text || "";
+  }
+
+  function scheduleSave() {
+    if (!state.current || !state.cues.length) return;
+    setSaveStatus("编辑中…");
+    clearTimeout(state.saveTimer);
+    state.saveTimer = setTimeout(() => saveCues(true), 1500);
+  }
+
+  async function flushSave() {
+    if (state.saveTimer) {
+      clearTimeout(state.saveTimer);
+      state.saveTimer = null;
+    }
+    if (state.dirty) await saveCues(true);
+  }
+
   function updateDirty(dirty) {
     state.dirty = dirty;
-    els.btnSave.disabled = !state.current || (!dirty && els.btnSave.dataset.saved === "1");
+    if (dirty) scheduleSave();
   }
 
   // ---------------------------------------------------------------- 配置/视频库
@@ -227,7 +245,7 @@
   }
 
   async function selectVideo(path) {
-    if (state.dirty && !confirm("当前字幕有未保存的修改，确定要切换吗？")) return;
+    await flushSave();
     state.current = state.videos.find((v) => v.path === path) || { path };
     state.activeIndex = -1;
     state.history = [];
@@ -260,10 +278,10 @@
     const data = await api(`/api/subtitles?path=${encodeURIComponent(state.current.path)}`);
     state.cues = data.cues || [];
     state.dirty = false;
+    setSaveStatus("");
+    els.backupPanel.classList.add("hidden");
     renderCues();
     els.btnDownload.disabled = !data.exists;
-    els.btnSave.disabled = !state.cues.length;
-    els.btnSave.dataset.saved = data.exists ? "1" : "0";
     els.currentName.textContent = data.video_name;
     if (!data.exists) toast("暂无字幕，请先运行生成流程");
   }
@@ -420,8 +438,9 @@
     }
   }
 
-  async function saveCues() {
-    if (!state.current) return;
+  async function saveCues(silent) {
+    if (!state.current || !state.cues.length) return;
+    state.saveTimer = null;
     try {
       const data = await api("/api/subtitles", {
         method: "PUT",
@@ -429,12 +448,93 @@
         body: JSON.stringify({ path: state.current.path, cues: state.cues }),
       });
       updateDirty(false);
-      els.btnSave.dataset.saved = "1";
       els.btnDownload.disabled = false;
-      toast(`已保存 ${data.count} 条字幕到 ${data.srt_name}`, "ok");
+      setSaveStatus(`已自动保存 ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`);
+      if (!silent) toast(`已保存 ${data.count} 条字幕`, "ok");
       refreshStatus();
     } catch (err) {
+      setSaveStatus("保存失败");
       toast("保存失败：" + err.message, "error");
+    }
+  }
+
+  // ---------------------------------------------------------------- 历史版本
+  function toggleHistory() {
+    const hidden = els.backupPanel.classList.toggle("hidden");
+    if (!hidden) loadBackups();
+  }
+
+  async function loadBackups() {
+    if (!state.current) return;
+    els.backupPanel.innerHTML = '<div class="muted" style="padding:8px">加载中…</div>';
+    try {
+      const data = await api(`/api/backups?path=${encodeURIComponent(state.current.path)}`);
+      renderBackups(data.backups || []);
+    } catch (err) {
+      els.backupPanel.innerHTML = `<div class="muted" style="padding:8px">读取失败：${escapeHtml(
+        err.message
+      )}</div>`;
+    }
+  }
+
+  function renderBackups(list) {
+    if (!list.length) {
+      els.backupPanel.innerHTML = '<div class="muted" style="padding:8px">暂无历史版本</div>';
+      return;
+    }
+    els.backupPanel.innerHTML = "";
+    list.forEach((backup) => {
+      const when = new Date(backup.mtime * 1000).toLocaleString("zh-CN", { hour12: false });
+      const item = document.createElement("div");
+      item.className = "backup-item";
+      item.innerHTML = `<span class="bname">${escapeHtml(backup.name)}</span>
+        <span class="muted">${when} · ${(backup.size / 1024).toFixed(1)}KB</span>
+        <button data-act="restore">恢复</button>
+        <button data-act="download">下载</button>
+        <button data-act="delete" class="danger">删除</button>`;
+      item.querySelectorAll("button").forEach((button) =>
+        button.addEventListener("click", () => backupAction(button.dataset.act, backup.name))
+      );
+      els.backupPanel.appendChild(item);
+    });
+  }
+
+  async function backupAction(action, name) {
+    if (!state.current) return;
+    if (action === "download") {
+      window.location.href = `/api/backups/download?path=${encodeURIComponent(
+        state.current.path
+      )}&name=${encodeURIComponent(name)}`;
+      return;
+    }
+    if (action === "restore") {
+      if (!confirm(`用 ${name} 覆盖当前字幕？当前版本会先备份。`)) return;
+      try {
+        await api("/api/backups/restore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: state.current.path, name }),
+        });
+        await loadCues();
+        await loadBackups();
+        toast("已恢复 " + name, "ok");
+      } catch (err) {
+        toast("恢复失败：" + err.message, "error");
+      }
+      return;
+    }
+    if (action === "delete") {
+      if (!confirm(`删除备份 ${name}？`)) return;
+      try {
+        await api("/api/backups/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: state.current.path, name }),
+        });
+        await loadBackups();
+      } catch (err) {
+        toast("删除失败：" + err.message, "error");
+      }
     }
   }
 
@@ -883,14 +983,18 @@
     };
   }
 
-  async function startJob(steps) {
+  async function startJob() {
     if (!state.current) return toast("请先选择视频", "error");
-    if (state.dirty && !confirm("当前字幕有未保存的修改，运行生成任务会覆盖它，确定继续吗？")) return;
+    await flushSave();
     try {
       const job = await api("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: state.current.path, steps, ...jobOptions() }),
+        body: JSON.stringify({
+          path: state.current.path,
+          steps: ["extract_audio", "transcribe", "recover", "frames", "clean"],
+          ...jobOptions(),
+        }),
       });
       state.jobId = job.id;
       els.progressBox.classList.remove("hidden");
@@ -924,6 +1028,7 @@
           state.jobId = null;
           await Promise.all([refreshStatus(), loadCues()]);
           if (state.view === "trajectory") loadTrajectory();
+          if (!els.backupPanel.classList.contains("hidden")) loadBackups();
           return;
         }
         if (job.status === "error") {
@@ -940,9 +1045,7 @@
   }
 
   function setButtonsBusy(busy) {
-    [els.btnFull, els.btnClean, els.btnTranscribe, els.btnRecover, els.btnFrames].forEach(
-      (b) => (b.disabled = busy)
-    );
+    els.btnFull.disabled = busy;
   }
 
   // ---------------------------------------------------------------- 播放器
@@ -981,11 +1084,8 @@
   // ---------------------------------------------------------------- 事件绑定
   els.refreshVideos.addEventListener("click", loadVideos);
   els.search.addEventListener("input", renderVideoList);
-  els.btnFull.addEventListener("click", () => startJob(["extract_audio", "transcribe", "frames", "clean"]));
-  els.btnClean.addEventListener("click", () => startJob(["clean"]));
-  els.btnTranscribe.addEventListener("click", () => startJob(["transcribe", "clean"]));
-  els.btnRecover.addEventListener("click", () => startJob(["recover", "clean"]));
-  els.btnFrames.addEventListener("click", () => startJob(["frames"]));
+  els.btnFull.addEventListener("click", startJob);
+  els.btnHistory.addEventListener("click", toggleHistory);
   els.btnSaveConfig.addEventListener("click", saveVideoConfig);
   els.btnPreviewCtx.addEventListener("click", previewContext);
   els.btnClearCache.addEventListener("click", clearContextCache);
@@ -1021,7 +1121,6 @@
   document.querySelectorAll(".view-toggle button").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
-  els.btnSave.addEventListener("click", saveCues);
   els.btnAddCue.addEventListener("click", addCueAtPlayhead);
   els.btnUndo.addEventListener("click", undo);
   els.playbackRate.addEventListener("change", () => setRate(els.playbackRate.value, true));
@@ -1043,7 +1142,7 @@
     const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
-      if (!els.btnSave.disabled) saveCues();
+      saveCues(false);
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       if (tag === "TEXTAREA") return;

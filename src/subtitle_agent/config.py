@@ -110,6 +110,9 @@ class Settings:
     recover_max_regions: int
     recover_model: Path | None
 
+    srt_backup_keep: int
+    srt_backup_interval: float
+
     # ---- 派生路径 ----
     @property
     def has_llm(self) -> bool:
@@ -127,6 +130,7 @@ class Settings:
             "context_cache": video.parent / (video.stem + ".context.json"),
             "trajectory": video.parent / (video.stem + ".trajectory.json"),
             "gaps": video.parent / (video.stem + ".gaps.json"),
+            "backups_dir": video.parent / (video.stem + ".backups"),
             "config": video.parent / (video.stem + CONFIG_SUFFIX),
         }
 
@@ -199,6 +203,8 @@ def load_settings() -> Settings:
         recover_low_conf_threshold=float(get("RECOVER_LOW_CONF_THRESHOLD", "0.45")),
         recover_max_regions=int(get("RECOVER_MAX_REGIONS", "80")),
         recover_model=recover_model,
+        srt_backup_keep=int(get("SRT_BACKUP_KEEP", "100")),
+        srt_backup_interval=float(get("SRT_BACKUP_INTERVAL", "120")),
     )
 
 
@@ -233,4 +239,6 @@ _KNOWN_KEYS = {
     "RECOVER_LOW_CONF_THRESHOLD",
     "RECOVER_MAX_REGIONS",
     "RECOVER_MODEL",
+    "SRT_BACKUP_KEEP",
+    "SRT_BACKUP_INTERVAL",
 }
