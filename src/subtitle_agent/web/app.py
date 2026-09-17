@@ -576,11 +576,6 @@ def _range_response(file_path: Path, request: Request) -> Response:
             start, end = 0, file_size - 1
         start = max(0, min(start, file_size - 1))
         end = max(start, min(end, file_size - 1))
-        # 单次最多返回 8MB：非 faststart 的 mp4 需要先读文件尾的 moov，
-        # 否则浏览器为了探测格式会把整个几个 GB 的文件都拉下来。
-        max_chunk = 8 * 1024 * 1024
-        if end - start + 1 > max_chunk:
-            end = start + max_chunk - 1
         length = end - start + 1
 
         def iterator():
