@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Callable
 
 from .config import Settings
-from .subtitle import _is_special_token
+from .subtitles import _is_special_token
 from .transcribe import Segment, load_segments, probe_duration, run_whisper
 
 _SIL_START = re.compile(r"silence_start:\s*(-?\d+(?:\.\d+)?)")
@@ -271,7 +271,7 @@ def recover_regions(
     if not regions:
         return regions
     extra_args = extra_args if extra_args is not None else ["-mc", "0"]
-    with tempfile.TemporaryDirectory(prefix="subtitle-recover-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="subtitles-recover-") as tmp:
         tmp_dir = Path(tmp)
         for index, region in enumerate(regions):
             slice_path = tmp_dir / f"region_{index:04d}.wav"

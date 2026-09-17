@@ -144,7 +144,7 @@ def load_settings() -> Settings:
             if k in _KNOWN_KEYS
             or k.startswith("LLM_")
             or k.startswith("WHISPER_")
-            or k.startswith("SUBTITLE_")
+            or k.startswith("SUBTITLES_")
             or k in {"PROJECT_DIR", "FFMPEG_BIN"}
         }
     )
@@ -185,8 +185,8 @@ def load_settings() -> Settings:
         llm_max_tokens=int(get("LLM_MAX_TOKENS", "16384")),
         llm_timeout=float(get("LLM_TIMEOUT", "180")),
         llm_thinking=get("LLM_THINKING", "off"),
-        default_max_chars=int(get("SUBTITLE_MAX_CHARS", "18")),
-        default_min_duration=float(get("SUBTITLE_MIN_DURATION", "0.8")),
+        default_max_chars=int(get("SUBTITLES_MAX_CHARS", "18")),
+        default_min_duration=float(get("SUBTITLES_MIN_DURATION", "0.8")),
         llm_block_chars=int(get("LLM_BLOCK_CHARS", "220")),
         frame_interval=int(get("FRAME_INTERVAL", "45")),
         frame_max_per_batch=int(get("FRAME_MAX_PER_BATCH", "4")),
@@ -219,8 +219,8 @@ _KNOWN_KEYS = {
     "LLM_MAX_TOKENS",
     "LLM_TIMEOUT",
     "LLM_THINKING",
-    "SUBTITLE_MAX_CHARS",
-    "SUBTITLE_MIN_DURATION",
+    "SUBTITLES_MAX_CHARS",
+    "SUBTITLES_MIN_DURATION",
     "LLM_BLOCK_CHARS",
     "FRAME_INTERVAL",
     "FRAME_MAX_PER_BATCH",

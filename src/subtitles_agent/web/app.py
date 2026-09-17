@@ -18,7 +18,7 @@ from ..context import build_reference, read_document
 from ..library import Library
 from ..llm import LLMClient
 from ..pipeline import VALID_STEPS, JobManager
-from ..subtitle import Cue, cues_to_srt, diff_cues, merge_cue_lists, normalize_cues, parse_srt
+from ..subtitles import Cue, cues_to_srt, diff_cues, merge_cue_lists, normalize_cues, parse_srt
 from ..trajectory import load_trace
 from ..video_config import CONFIG_SUFFIX, VideoConfig, config_path_for, list_configs
 
@@ -28,7 +28,7 @@ settings = load_settings()
 library = Library(settings)
 jobs = JobManager(settings)
 
-app = FastAPI(title="Video Subtitle Agent")
+app = FastAPI(title="Video Subtitles Agent")
 
 
 class NoCacheStaticFiles(StaticFiles):

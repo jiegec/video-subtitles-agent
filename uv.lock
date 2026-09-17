@@ -596,7 +596,7 @@ wheels = [
 ]
 
 [[package]]
-name = "video-subtitle-agent"
+name = "video-subtitles-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

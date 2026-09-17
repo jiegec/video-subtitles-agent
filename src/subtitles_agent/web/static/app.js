@@ -235,7 +235,7 @@
     state.activeIndex = -1;
     state.history = [];
     try {
-      localStorage.setItem("subtitleSelected", path);
+      localStorage.setItem("subtitlesSelected", path);
     } catch (_) {}
     els.emptyHint.classList.add("hidden");
     els.player.src = `/api/media?path=${encodeURIComponent(path)}`;
@@ -1216,7 +1216,7 @@
     }
     els.playbackRate.value = String(rate);
     try {
-      localStorage.setItem("subtitlePlaybackRate", String(rate));
+      localStorage.setItem("subtitlesPlaybackRate", String(rate));
     } catch (_) {}
     if (notify) toast(`倍速 ${rate}×`);
   }
@@ -1281,7 +1281,7 @@
     els.player.playbackRate = Number(els.playbackRate.value) || 1;
   });
   try {
-    const savedRate = parseFloat(localStorage.getItem("subtitlePlaybackRate") || "1");
+    const savedRate = parseFloat(localStorage.getItem("subtitlesPlaybackRate") || "1");
     if (savedRate) setRate(savedRate, false);
   } catch (_) {}
   els.btnDownload.addEventListener("click", () => {
@@ -1323,7 +1323,7 @@
       requestAnimationFrame(tick);
       let saved = null;
       try {
-        saved = localStorage.getItem("subtitleSelected");
+        saved = localStorage.getItem("subtitlesSelected");
       } catch (_) {}
       if (saved && state.videos.some((v) => v.path === saved)) {
         await selectVideo(saved);

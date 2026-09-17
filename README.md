@@ -18,8 +18,8 @@
 
 ```bash
 uv sync
-uv run subtitle-agent            # 默认 http://127.0.0.1:8765
-uv run subtitle-agent --port 9000
+uv run subtitles-agent            # 默认 http://127.0.0.1:8765
+uv run subtitles-agent --port 9000
 ```
 
 打开网页后：
@@ -59,7 +59,7 @@ cp .env.example .env
 | `LLM_MAX_TOKENS` | 单次返回上限 | `16384` |
 | `LLM_TIMEOUT` | 单次请求超时（秒） | `180` |
 | `LLM_THINKING` | 推理强度 `off/low/medium/high/auto` | `off` |
-| `SUBTITLE_MAX_CHARS` / `SUBTITLE_MIN_DURATION` | 每句最大字数 / 最短显示 | `18` / `0.8` |
+| `SUBTITLES_MAX_CHARS` / `SUBTITLES_MIN_DURATION` | 每句最大字数 / 最短显示 | `18` / `0.8` |
 | `LLM_BLOCK_CHARS` | 每次交给 LLM 的分块字数 | `220` |
 | `FRAME_INTERVAL` | 截图间隔（秒） | `45` |
 | `FRAME_MAX_PER_BATCH` | 每个 LLM 请求最多附几张截图 | `4` |
@@ -73,7 +73,7 @@ cp .env.example .env
 
 ## per-video 配置（JSON）
 
-每个视频都有自己的工程配置，保存在视频旁边：`<视频名>.subtitle.json`。全部可在网页里编辑，也可以复用/导入/导出：
+每个视频都有自己的工程配置，保存在视频旁边：`<视频名>.subtitles.json`。全部可在网页里编辑，也可以复用/导入/导出：
 
 ```json
 {
@@ -89,7 +89,7 @@ cp .env.example .env
 ```
 
 - **复用**：在网页里选择另一个视频的配置一键覆盖到当前视频
-- **导入 / 导出**：上传一个现成的 `.subtitle.json`，或把当前配置导出保存
+- **导入 / 导出**：上传一个现成的 `.subtitles.json`，或把当前配置导出保存
 - 术语表会同时用于 whisper 的 `--prompt`（提高专有名词识别率）和 LLM 纠错
 - 资料很长时，会先让 LLM 压缩成「摘要 + 术语表」并缓存到 `<视频名>.context.json`，避免每次请求都塞入整份文档
 
@@ -104,7 +104,7 @@ cp .env.example .env
 | `xxx.frames/` | 视频截图与 `manifest.json` |
 | `xxx.context.json` | 参考资料摘要缓存 |
 | `xxx.gaps.json` | 漏识别补齐报告（可疑区间与重转结果） |
-| `xxx.subtitle.json` | 本视频的工程配置（可复用/导入导出） |
+| `xxx.subtitles.json` | 本视频的工程配置（可复用/导入导出） |
 | `xxx.trajectory.json` | 生成轨迹（原始字幕 / 上下文 / LLM 输入输出 / 重排结果） |
 | `xxx.backups/` | SRT 历史版本（自动保存/重新生成前备份） |
 | `xxx.srt` | 最终字幕（编辑时自动保存） |
@@ -169,7 +169,7 @@ LLM 会删词、改字，因此不能直接沿用 whisper 的分句时间。做�
 ## 项目结构
 
 ```
-src/subtitle_agent/
+src/subtitles_agent/
   config.py          # 配置加载
   video_config.py    # per-video JSON 工程配置
   context.py         # 参考资料读取 / 摘要
@@ -178,7 +178,7 @@ src/subtitle_agent/
   backup.py          # SRT 历史版本
   transcribe.py      # ffmpeg / whisper-cli
   llm.py             # OpenAI 兼容 LLM 客户端（支持多模态）
-  subtitle.py        # SRT 读写 + 时间轴对齐/重排
+  subtitles.py        # SRT 读写 + 时间轴对齐/重排
   trajectory.py      # 生成轨迹（diff + 落盘）
   pipeline.py        # 任务编排
   library.py         # 视频库

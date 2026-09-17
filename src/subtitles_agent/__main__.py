@@ -1,4 +1,4 @@
-"""Web 服务入口：`uv run subtitle-agent`（或 `python -m subtitle_agent`）启动。"""
+"""Web 服务入口：`uv run subtitles-agent`（或 `python -m subtitles_agent`）启动。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def main() -> None:
 
     print(f"\n  字幕 Agent 已启动 →  http://{args.host}:{args.port}\n")
     uvicorn.run(
-        "subtitle_agent.web.app:app",
+        "subtitles_agent.web.app:app",
         host=args.host,
         port=args.port,
         reload=args.reload,

@@ -9,7 +9,7 @@ from pathlib import Path
 from .config import Settings
 from .frames import existing_frames
 from .recover import load_report as load_gaps_report
-from .subtitle import parse_srt
+from .subtitles import parse_srt
 from .transcribe import probe_duration, scan_videos
 
 

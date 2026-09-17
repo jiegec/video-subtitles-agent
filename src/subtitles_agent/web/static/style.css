@@ -113,12 +113,12 @@ input[type="search"] { width: 100%; margin-bottom: 8px; }
   aspect-ratio: 16 / 9; max-height: 46vh; background: #000; margin: 0 auto;
 }
 #player { width: 100%; height: 100%; display: block; object-fit: contain; }
-.subtitle-overlay {
+.subtitles-overlay {
   position: absolute; left: 0; right: 0; bottom: 8%;
   display: flex; justify-content: center; pointer-events: none; padding: 0 6%;
   text-align: center;
 }
-.subtitle-overlay span {
+.subtitles-overlay span {
   background: rgba(0,0,0,.72); color: #fff; padding: 5px 14px; border-radius: 8px;
   font-size: 22px; line-height: 1.4; text-shadow: 0 1px 3px #000; white-space: pre-wrap;
 }

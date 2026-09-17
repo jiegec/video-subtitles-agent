@@ -2,7 +2,7 @@
 
 每个视频都有自己的工程配置，文件放在视频旁边：
 
-    <视频目录>/<视频名>.subtitle.json
+    <视频目录>/<视频名>.subtitles.json
 
 结构：
 {
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 LOCK = threading.Lock()
-CONFIG_SUFFIX = ".subtitle.json"
+CONFIG_SUFFIX = ".subtitles.json"
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".flv", ".m4v", ".ts"}
 
 

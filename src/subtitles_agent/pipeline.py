@@ -19,7 +19,7 @@ from .context import build_reference, read_document
 from .frames import Frame
 from .llm import LLMClient, LLMError
 from .recover import load_merged_segments, load_report as load_gaps_report
-from .subtitle import (
+from .subtitles import (
     Cue,
     build_char_timeline,
     cues_to_srt,
