@@ -1,5 +1,7 @@
 # 视频字幕 Agent
 
+[![CI](https://github.com/jiegec/video-subtitles-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/jiegec/video-subtitles-agent/actions/workflows/ci.yml)
+
 基于 **whisper-cli + LLM** 的视频字幕生成与编辑工具。所有操作都在一个 Web 界面里完成：
 
 - 扫描 `project/` 目录下的视频
@@ -165,6 +167,17 @@ LLM 会删词、改字，因此不能直接沿用 whisper 的分句时间。做�
 3. 再按最大字数切句，时间取该句首字符的开始与末字符的结束
 
 因此即使删除了口语、纠正了同音字，字幕时间仍然贴合原始语音，不会整体漂移。
+
+## 开发
+
+```bash
+uv sync
+uv run ruff check src tests   # lint
+uv run pytest -q              # 单元测试（不依赖 ffmpeg / whisper / LLM）
+uv build                      # 构建 sdist + wheel
+```
+
+CI（GitHub Actions）在 Python 3.11 / 3.12 / 3.13 上跑 lint、单元测试、字节码编译与前端语法检查，并构建发行包。
 
 ## 项目结构
 
