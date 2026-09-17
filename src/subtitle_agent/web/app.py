@@ -289,6 +289,17 @@ def create_job(payload: dict = Body(...)) -> dict:
     return job.as_dict()
 
 
+@app.get("/api/jobs/active")
+def get_active_job(path: str = Query(...)) -> dict:
+    """当前正在运行的任务；没有则返回该视频最近一次任务（便于刷新后继续看日志）。"""
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    job = jobs.active_job(path) or jobs.latest_job(path)
+    return {"job": job.as_dict() if job else None}
+
+
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str) -> dict:
     job = jobs.get(job_id)

@@ -234,11 +234,35 @@
     state.current = state.videos.find((v) => v.path === path) || { path };
     state.activeIndex = -1;
     state.history = [];
+    try {
+      localStorage.setItem("subtitleSelected", path);
+    } catch (_) {}
     els.emptyHint.classList.add("hidden");
     els.player.src = `/api/media?path=${encodeURIComponent(path)}`;
     renderVideoList();
     await Promise.all([refreshStatus(), loadCues(), loadVideoConfig(), loadReusableConfigs()]);
     if (state.view === "trajectory") loadTrajectory();
+    await resumeJob();
+  }
+
+  async function resumeJob() {
+    if (!state.current) return;
+    try {
+      const data = await api(`/api/jobs/active?path=${encodeURIComponent(state.current.path)}`);
+      const job = data.job;
+      if (!job) return;
+      state.jobId = job.id;
+      els.progressBox.classList.remove("hidden");
+      updateJob(job);
+      if (job.status === "pending" || job.status === "running") {
+        setButtonsBusy(true);
+        pollJob();
+      } else {
+        setButtonsBusy(false);
+      }
+    } catch (_) {
+      /* 忽略 */
+    }
   }
 
   async function refreshStatus() {
@@ -1292,6 +1316,13 @@
       await loadConfig();
       await loadVideos();
       requestAnimationFrame(tick);
+      let saved = null;
+      try {
+        saved = localStorage.getItem("subtitleSelected");
+      } catch (_) {}
+      if (saved && state.videos.some((v) => v.path === saved)) {
+        await selectVideo(saved);
+      }
     } catch (err) {
       toast("初始化失败：" + err.message, "error");
     }

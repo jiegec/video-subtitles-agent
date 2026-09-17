@@ -557,6 +557,10 @@ class JobManager:
     def get(self, job_id: str) -> Job | None:
         return self.jobs.get(job_id)
 
+    def latest_job(self, path: str) -> Job | None:
+        candidates = [job for job in self.jobs.values() if job.path == path]
+        return max(candidates, key=lambda job: job.created_at) if candidates else None
+
     def _run(self, job: Job) -> None:
         settings = self.settings
         video = settings.project_dir / job.path
