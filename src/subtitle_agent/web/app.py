@@ -29,18 +29,19 @@ library = Library(settings)
 jobs = JobManager(settings)
 
 app = FastAPI(title="Video Subtitle Agent")
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-@app.middleware("http")
-async def no_cache_static(request: Request, call_next):
-    """页面与静态资源不强缓存：代码更新后普通刷新即可生效，不需要强制刷新。"""
-    response = await call_next(request)
-    path = request.url.path
-    if path == "/" or path.startswith("/static"):
+class NoCacheStaticFiles(StaticFiles):
+    """静态资源加 no-cache：改前端后普通刷新即可生效。只改响应头，不包装流式响应。"""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
-    return response
+        return response
+
+
+app.mount("/static", NoCacheStaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 # --------------------------------------------------------------------------- #
@@ -48,7 +49,10 @@ async def no_cache_static(request: Request, call_next):
 # --------------------------------------------------------------------------- #
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={"Cache-Control": "no-cache, must-revalidate", "Pragma": "no-cache"},
+    )
 
 
 @app.get("/api/config")
@@ -572,6 +576,11 @@ def _range_response(file_path: Path, request: Request) -> Response:
             start, end = 0, file_size - 1
         start = max(0, min(start, file_size - 1))
         end = max(start, min(end, file_size - 1))
+        # 单次最多返回 8MB：非 faststart 的 mp4 需要先读文件尾的 moov，
+        # 否则浏览器为了探测格式会把整个几个 GB 的文件都拉下来。
+        max_chunk = 8 * 1024 * 1024
+        if end - start + 1 > max_chunk:
+            end = start + max_chunk - 1
         length = end - start + 1
 
         def iterator():
@@ -616,7 +625,7 @@ def _range_response(file_path: Path, request: Request) -> Response:
     )
 
 
-@app.get("/api/media")
+@app.api_route("/api/media", methods=["GET", "HEAD"])
 def get_media(request: Request, path: str = Query(...)):
     try:
         file_path = library.resolve(path)
