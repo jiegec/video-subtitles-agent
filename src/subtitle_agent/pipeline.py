@@ -201,7 +201,6 @@ def generate_srt(
     min_duration: float,
     use_llm: bool,
     block_chars: int,
-    use_frames: bool | None,
     frame_interval: int | None,
     frames_dir: Path,
     context_cache: Path,
@@ -211,8 +210,6 @@ def generate_srt(
     preloaded_frames: list[Frame] | None = None,
 ) -> list[Cue]:
     eff = video_config.effective(default_frame_interval=settings.frame_interval)
-    if use_frames is None:
-        use_frames = eff.use_frames
     interval = int(frame_interval or eff.frame_interval or settings.frame_interval)
 
     log(f"读取转写：{whisper_json.name}")
@@ -245,10 +242,9 @@ def generate_srt(
             )
         finally:
             client.close()
-        if use_frames:
-            frames = preloaded_frames or frames_mod.ensure_frames(
-                settings, video, frames_dir, interval, log
-            )
+        frames = preloaded_frames or frames_mod.ensure_frames(
+            settings, video, frames_dir, interval, log
+        )
 
     if use_llm:
         alts = recover_mod.build_alts(blocks, gaps_report)
@@ -309,7 +305,6 @@ def generate_srt(
         min_duration=min_duration,
         use_llm=use_llm,
         block_chars=block_chars,
-        use_frames=use_frames,
         log=log,
     )
     return cues
@@ -338,7 +333,6 @@ def _save_trajectory(
     min_duration: float,
     use_llm: bool,
     block_chars: int,
-    use_frames: bool,
     log: Callable[[str], None],
 ) -> None:
     block_to_batch: dict[int, int] = {}
@@ -416,7 +410,7 @@ def _save_trajectory(
             "min_duration": min_duration,
             "use_llm": use_llm,
             "block_chars": block_chars,
-            "use_frames": use_frames,
+            "use_frames": bool(frames),
             "frame_interval": interval,
             "model": settings.llm_model if settings.has_llm else None,
             "llm_base_url": settings.llm_base_url if settings.has_llm else None,
@@ -590,13 +584,9 @@ class JobManager:
                         raise RuntimeError("缺少 whisper 转写结果，请先转写")
                     eff = video_config.effective(settings.frame_interval)
                     base_segments = load_merged_segments(artifacts["whisper_json"], None)
-                    min_gap = float(options.get("recover_min_gap", settings.recover_min_gap))
-                    min_cps = float(options.get("recover_min_cps", settings.recover_min_cps))
-                    low_conf_thr = float(
-                        options.get("recover_low_conf_threshold", settings.recover_low_conf_threshold)
-                    )
-                    use_sparse = True
-                    use_low_conf = True
+                    min_gap = settings.recover_min_gap
+                    min_cps = settings.recover_min_cps
+                    low_conf_thr = settings.recover_low_conf_threshold
                     job.log(
                         f"检测漏识别（噪声 {settings.recover_noise_db}dB，最短缺口 {min_gap}s，"
                         f"低置信阈值 {low_conf_thr}）…"
@@ -609,13 +599,9 @@ class JobManager:
                         job.log,
                     )
                     gaps = recover_mod.find_gaps(base_segments, speech, min_gap)
-                    sparse = (
-                        recover_mod.find_sparse(base_segments, min_cps=min_cps) if use_sparse else []
-                    )
-                    low_conf = (
-                        recover_mod.find_low_confidence(base_segments, threshold=low_conf_thr)
-                        if use_low_conf
-                        else []
+                    sparse = recover_mod.find_sparse(base_segments, min_cps=min_cps)
+                    low_conf = recover_mod.find_low_confidence(
+                        base_segments, threshold=low_conf_thr
                     )
                     regions = recover_mod.merge_regions([*gaps, *sparse, *low_conf])
                     job.log(
@@ -646,8 +632,6 @@ class JobManager:
                             "min_silence": settings.recover_min_silence,
                             "min_gap": min_gap,
                             "min_cps": min_cps,
-                            "sparse": use_sparse,
-                            "low_conf": use_low_conf,
                             "low_conf_threshold": low_conf_thr,
                             "max_regions": settings.recover_max_regions,
                             "model": str(settings.recover_model or settings.whisper_model),
@@ -712,7 +696,6 @@ class JobManager:
                         min_duration=float(options.get("min_duration", settings.default_min_duration)),
                         use_llm=True,
                         block_chars=int(options.get("block_chars", settings.llm_block_chars)),
-                        use_frames=True,
                         frame_interval=options.get("frame_interval"),
                         frames_dir=artifacts["frames_dir"],
                         context_cache=artifacts["context_cache"],

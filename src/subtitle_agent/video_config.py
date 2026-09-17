@@ -11,7 +11,6 @@
   "context": "本视频讲了……",
   "glossary": [{"term": "哈希表", "aliases": ["哈西表"], "note": "数据结构"}],
   "documents": ["资料/第一周.pdf", "https://..."],
-  "use_frames": true,
   "frame_interval": 45
 }
 
@@ -41,7 +40,6 @@ def default_config() -> dict:
         "context": "",
         "glossary": [],
         "documents": [],
-        "use_frames": True,
         "frame_interval": 45,
     }
 
@@ -95,7 +93,6 @@ class EffectiveContext:
     context: str = ""
     glossary: list[dict] = field(default_factory=list)
     documents: list[str] = field(default_factory=list)
-    use_frames: bool = True
     frame_interval: int = 45
 
 
@@ -139,8 +136,6 @@ class VideoConfig:
             merged["glossary"] = normalize_glossary(data.get("glossary"))
         if "documents" in data:
             merged["documents"] = normalize_documents(data.get("documents"))
-        if "use_frames" in data:
-            merged["use_frames"] = bool(data.get("use_frames"))
         if "frame_interval" in data:
             try:
                 merged["frame_interval"] = max(5, int(data.get("frame_interval")))
@@ -168,7 +163,6 @@ class VideoConfig:
             context=str(self.raw.get("context") or ""),
             glossary=normalize_glossary(self.raw.get("glossary")),
             documents=normalize_documents(self.raw.get("documents")),
-            use_frames=bool(self.raw.get("use_frames", True)),
             frame_interval=int(self.raw.get("frame_interval") or default_frame_interval),
         )
 
@@ -179,7 +173,6 @@ class VideoConfig:
             "context": v.context,
             "glossary": v.glossary,
             "documents": v.documents,
-            "use_frames": v.use_frames,
             "frame_interval": v.frame_interval,
         }
 

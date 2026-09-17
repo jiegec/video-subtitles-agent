@@ -104,8 +104,6 @@ class Settings:
     recover_min_silence: float
     recover_min_gap: float
     recover_min_cps: float
-    recover_sparse: bool
-    recover_low_conf: bool
     recover_low_conf_threshold: float
     recover_max_regions: int
     recover_model: Path | None
@@ -198,8 +196,6 @@ def load_settings() -> Settings:
         recover_min_silence=float(get("RECOVER_MIN_SILENCE", "0.4")),
         recover_min_gap=float(get("RECOVER_MIN_GAP", "1.5")),
         recover_min_cps=float(get("RECOVER_MIN_CPS", "1.8")),
-        recover_sparse=get("RECOVER_SPARSE", "1").lower() not in {"0", "false", "no", "off"},
-        recover_low_conf=get("RECOVER_LOW_CONF", "1").lower() not in {"0", "false", "no", "off"},
         recover_low_conf_threshold=float(get("RECOVER_LOW_CONF_THRESHOLD", "0.45")),
         recover_max_regions=int(get("RECOVER_MAX_REGIONS", "80")),
         recover_model=recover_model,
@@ -234,8 +230,6 @@ _KNOWN_KEYS = {
     "RECOVER_MIN_SILENCE",
     "RECOVER_MIN_GAP",
     "RECOVER_MIN_CPS",
-    "RECOVER_SPARSE",
-    "RECOVER_LOW_CONF",
     "RECOVER_LOW_CONF_THRESHOLD",
     "RECOVER_MAX_REGIONS",
     "RECOVER_MODEL",

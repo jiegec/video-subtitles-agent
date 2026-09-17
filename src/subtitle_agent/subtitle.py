@@ -282,14 +282,7 @@ def merge_short_cues(
         last = merged[-1]
         combined = last.text + cue.text
         if (
-            len(cue.text) <= min_chars
-            and cue.start - last.end <= gap
-            and len(combined) <= max_chars
-        ):
-            last.text = combined
-            last.end = cue.end
-        elif (
-            len(last.text) <= min_chars
+            (len(cue.text) <= min_chars or len(last.text) <= min_chars)
             and cue.start - last.end <= gap
             and len(combined) <= max_chars
         ):

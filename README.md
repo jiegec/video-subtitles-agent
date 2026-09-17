@@ -66,7 +66,6 @@ cp .env.example .env
 | `FRAME_MAX_COUNT` | 单个视频最多保留多少张截图（过长会自动拉大间隔） | `240` |
 | `CONTEXT_MAX_CHARS` | 资料注入上限（超出自动摘要） | `12000` |
 | `RECOVER_MIN_GAP` / `RECOVER_MIN_CPS` / `RECOVER_LOW_CONF_THRESHOLD` | 补齐漏识别的三类阈值 | `1.5` / `1.8` / `0.45` |
-| `RECOVER_SPARSE` / `RECOVER_LOW_CONF` | 是否启用稀疏 / 低置信检测 | `1` / `1` |
 | `RECOVER_MAX_REGIONS` | 单次最多重转多少个可疑区间 | `80` |
 | `RECOVER_MODEL` | 补转用的模型（不填则同 `WHISPER_MODEL`） | 空 |
 | `SRT_BACKUP_KEEP` | 保留多少个 SRT 历史版本 | `100` |
@@ -85,7 +84,6 @@ cp .env.example .env
     { "term": "哈希表", "aliases": ["哈西表"], "note": "数据结构" }
   ],
   "documents": ["资料/第一周.pdf", "https://example.com/notes"],
-  "use_frames": true,
   "frame_interval": 45
 }
 ```

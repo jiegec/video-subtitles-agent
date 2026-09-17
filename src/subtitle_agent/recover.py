@@ -26,19 +26,8 @@ from .config import Settings
 from .subtitle import _is_special_token
 from .transcribe import Segment, load_segments, probe_duration, run_whisper
 
-REPORT_SUFFIX = ".gaps.json"
-
 _SIL_START = re.compile(r"silence_start:\s*(-?\d+(?:\.\d+)?)")
 _SIL_END = re.compile(r"silence_end:\s*(-?\d+(?:\.\d+)?)")
-
-
-def report_path_for(whisper_json: Path) -> Path:
-    name = whisper_json.name
-    if name.endswith(".whisper.json"):
-        name = name[: -len(".whisper.json")]
-    else:
-        name = whisper_json.stem
-    return whisper_json.parent / (name + REPORT_SUFFIX)
 
 
 @dataclass

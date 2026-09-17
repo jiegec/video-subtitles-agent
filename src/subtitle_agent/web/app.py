@@ -77,7 +77,8 @@ def get_config() -> dict:
             "min_silence": settings.recover_min_silence,
             "min_gap": settings.recover_min_gap,
             "min_cps": settings.recover_min_cps,
-            "sparse": settings.recover_sparse,
+            "low_conf_threshold": settings.recover_low_conf_threshold,
+            "max_regions": settings.recover_max_regions,
             "model": str(settings.recover_model or settings.whisper_model),
         },
         "valid_steps": list(VALID_STEPS),
@@ -559,6 +560,7 @@ def _range_response(file_path: Path, request: Request) -> Response:
     content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
     range_header = request.headers.get("range")
     start, end = 0, file_size - 1
+    status = 200
 
     if range_header:
         try:
@@ -576,47 +578,34 @@ def _range_response(file_path: Path, request: Request) -> Response:
             start, end = 0, file_size - 1
         start = max(0, min(start, file_size - 1))
         end = max(start, min(end, file_size - 1))
-        length = end - start + 1
+        status = 206
 
-        def iterator():
-            with file_path.open("rb") as fh:
-                fh.seek(start)
-                remaining = length
-                while remaining > 0:
-                    chunk = fh.read(min(1024 * 256, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    yield chunk
+    length = end - start + 1
+    headers = {
+        "Content-Length": str(length),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+    }
+    if status == 206:
+        headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
 
-        return StreamingResponse(
-            iterator(),
-            status_code=206,
-            media_type=content_type,
-            headers={
-                "Content-Range": f"bytes {start}-{end}/{file_size}",
-                "Accept-Ranges": "bytes",
-                "Content-Length": str(length),
-                "Cache-Control": "no-store",
-            },
-        )
+    # HEAD（以及无 Range 的探测）不需要真实读文件
+    if request.method == "HEAD":
+        return Response(status_code=status, media_type=content_type, headers=headers)
 
-    def full_iterator():
+    def iterator():
         with file_path.open("rb") as fh:
-            while True:
-                chunk = fh.read(1024 * 256)
+            fh.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = fh.read(min(1024 * 256, remaining))
                 if not chunk:
                     break
+                remaining -= len(chunk)
                 yield chunk
 
     return StreamingResponse(
-        full_iterator(),
-        media_type=content_type,
-        headers={
-            "Content-Length": str(file_size),
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "no-store",
-        },
+        iterator(), status_code=status, media_type=content_type, headers=headers
     )
 
 
