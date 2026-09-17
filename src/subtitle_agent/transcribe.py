@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
@@ -143,12 +144,24 @@ def run_whisper(
     )
     assert proc.stdout is not None
     tail: list[str] = []
+    started = time.time()
+    last_reported = -10
     for line in proc.stdout:
         line = line.rstrip("\n")
         if progress:
             match = _PROGRESS_RE.search(line)
             if match:
-                progress(int(match.group(1)))
+                percent = int(match.group(1))
+                progress(percent)
+                # 每跳 >=5% 记一条日志（同时会更新界面上的当前消息），避免刷屏
+                if percent >= last_reported + 5 or percent >= 100:
+                    elapsed = time.time() - started
+                    eta = elapsed / percent * (100 - percent) if percent > 0 else 0.0
+                    log(
+                        f"whisper 转写中：{percent}%（已用 {elapsed:.0f}s，"
+                        f"约剩 {eta:.0f}s）"
+                    )
+                    last_reported = percent
         if line.strip():
             tail.append(line)
             if len(tail) > 400:
