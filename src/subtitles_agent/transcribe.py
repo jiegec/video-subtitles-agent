@@ -71,17 +71,49 @@ def probe_mean_volume(settings: Settings, wav: Path) -> float | None:
     return _mean_volume(settings, wav)
 
 
+def probe_channels(settings: Settings, media: Path) -> int | None:
+    """返回第一条音频流的声道数（非立体声场景不需要做声道分析）。"""
+    ffprobe = str(Path(settings.ffmpeg_bin).with_name("ffprobe"))
+    try:
+        out = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=channels",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(media),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=30,
+        )
+        return int(out.stdout.strip())
+    except Exception:
+        return None
+
+
 def choose_mono_filter(
     settings: Settings, media: Path, log: LogFn = _noop, sample: float = 120.0
 ) -> str | None:
     """选单声道混音方式。
 
     返回 pan 表达式（如 "c0=c0"），None 表示直接 `-ac 1` 平均即可。
-    两种情况需要只取一个声道：
+    只有真正的双声道音频才需要特殊处理，单声道 / 多声道直接默认混音。
+    双声道里需要只取一个声道的情况：
 
     - 只有一个声道有声音（两个声道电平相差很大）；
     - 左右声道反相（电平接近但混单后相互抵消，明显变低）。
     """
+    channels = probe_channels(settings, media)
+    if channels is not None and channels != 2:
+        return None
+
     left = _mean_volume(settings, media, "c0=c0", sample)
     right = _mean_volume(settings, media, "c0=c1", sample)
     if left is None or right is None:

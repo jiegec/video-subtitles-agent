@@ -8,6 +8,7 @@ from subtitles_agent import transcribe
 
 
 def _patch_volumes(monkeypatch, values):
+    monkeypatch.setattr(transcribe, "probe_channels", lambda settings, media: 2)
     monkeypatch.setattr(
         transcribe, "_mean_volume", lambda settings, media, pan=None, duration=None: values.get(pan)
     )
@@ -43,3 +44,41 @@ def test_normal_stereo_uses_default_mix(monkeypatch):
         {"c0=c0": -20.0, "c0=c1": -21.0, "c0=0.5*c0+0.5*c1": -14.0},
     )
     assert transcribe.choose_mono_filter(SimpleNamespace(), "video.mp4") is None
+
+
+def test_mono_skips_channel_analysis(monkeypatch):
+    monkeypatch.setattr(transcribe, "probe_channels", lambda settings, media: 1)
+
+    def _unexpected(*args, **kwargs):
+        raise AssertionError("单声道不应再做声道音量分析")
+
+    monkeypatch.setattr(transcribe, "_mean_volume", _unexpected)
+    logs: list[str] = []
+    assert transcribe.choose_mono_filter(SimpleNamespace(), "video.mp4", logs.append) is None
+    assert logs == []
+
+
+def test_multichannel_skips_channel_analysis(monkeypatch):
+    monkeypatch.setattr(transcribe, "probe_channels", lambda settings, media: 6)
+
+    def _unexpected(*args, **kwargs):
+        raise AssertionError("多声道不应再做双声道分析")
+
+    monkeypatch.setattr(transcribe, "_mean_volume", _unexpected)
+    assert transcribe.choose_mono_filter(SimpleNamespace(), "video.mp4") is None
+
+
+def test_unknown_channel_count_falls_back_to_analysis(monkeypatch):
+    monkeypatch.setattr(transcribe, "probe_channels", lambda settings, media: None)
+    monkeypatch.setattr(
+        transcribe,
+        "_mean_volume",
+        lambda settings, media, pan=None, duration=None: {
+            "c0=c0": -25.0,
+            "c0=c1": -26.0,
+            "c0=0.5*c0+0.5*c1": -60.0,
+        }.get(pan),
+    )
+    logs: list[str] = []
+    assert transcribe.choose_mono_filter(SimpleNamespace(), "video.mp4", logs.append) == "c0=c0"
+    assert any("反相" in line for line in logs)
