@@ -1038,9 +1038,15 @@
     const llm = data.llm || {};
     const lt = llm.totals || {};
     const videoPath = data.video || (state.current && state.current.path) || "";
+    const asrBackend = params.asr_backend || (data.asr && data.asr.backend) || "whisper";
+    const asrEngine =
+      params.asr_engine || (data.asr && data.asr.engine) || (asrBackend === "whisper" ? params.whisper_model : "");
+    const asrLabel = `${
+      asrBackend === "tencent" ? "腾讯云" : "whisper"
+    }${asrEngine ? " · " + asrEngine : ""}`;
 
     const chips = [
-      `whisper 片段 <b>${s.segments ?? "-"}</b>`,
+      `识别片段 <b>${s.segments ?? "-"}</b>`,
       `文本块 <b>${s.blocks ?? "-"}</b>`,
       `LLM 请求 <b>${s.batches ?? "-"}</b>`,
       `字幕 <b>${s.cues ?? "-"}</b>`,
@@ -1071,7 +1077,7 @@
       ["截图间隔", (params.frame_interval ?? "—") + "s"],
       ["分块字数", params.block_chars ?? "—"],
       ["最短显示", (params.min_duration ?? "—") + "s"],
-      ["whisper 模型", params.whisper_model || "—"],
+      ["语音识别", asrLabel || "—"],
     ]
       .map(([k, v]) => `<div><b>${k}：</b>${escapeHtml(String(v))}</div>`)
       .join("");
@@ -1217,7 +1223,7 @@
           </summary>
           <div class="tb-body">
             <div class="trace-grid">
-              <div class="tb-pane"><div class="tb-label">whisper 原始（删除/改写为红色）</div><div class="tb-text">${diffHtml(block.diff, "raw")}</div></div>
+              <div class="tb-pane"><div class="tb-label">识别原文（删除/改写为红色）</div><div class="tb-text">${diffHtml(block.diff, "raw")}</div></div>
               <div class="tb-pane"><div class="tb-label">LLM 清洗后（新增/改写为绿/黄色）</div><div class="tb-text">${diffHtml(block.diff, "clean")}</div></div>
             </div>
             ${block.alt_text ? `<div class="tb-pane" style="margin-top:8px"><div class="tb-label">另一版识别（alt，供 LLM 参考）</div><div class="tb-text">${escapeHtml(block.alt_text)}</div></div>` : ""}

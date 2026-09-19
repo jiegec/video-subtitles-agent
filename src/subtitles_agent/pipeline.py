@@ -1,4 +1,4 @@
-"""任务编排：截图 / 抽音频 -> whisper 转写 -> LLM 清洗 -> 生成 SRT，并管理后台任务。"""
+"""任务编排：截图 / 抽音频 -> 语音识别 -> LLM 清洗 -> 生成 SRT，并管理后台任务。"""
 
 from __future__ import annotations
 
@@ -436,7 +436,13 @@ def _save_trajectory(
                 {"index": f.index, "time": round(f.time, 3), "name": f.path.name} for f in frames
             ],
         },
-        "whisper": {
+        "asr": {
+            "backend": settings.asr_backend,
+            "engine": (
+                settings.tencent_engine
+                if settings.asr_backend == "tencent"
+                else Path(settings.whisper_model).name
+            ),
             "segment_count": len(segments),
             "segments": [
                 {"start": round(s.start, 3), "end": round(s.end, 3), "text": s.text}
@@ -588,7 +594,7 @@ class JobManager:
                     if not artifacts["wav"].is_file():
                         raise RuntimeError("缺少音频，请先抽取音频")
                     if not artifacts["whisper_json"].is_file():
-                        raise RuntimeError("缺少 whisper 转写结果，请先转写")
+                        raise RuntimeError("缺少语音识别结果，请先转写")
                     eff = video_config.effective(settings.frame_interval)
                     base_segments = load_merged_segments(artifacts["whisper_json"], None)
                     min_gap = settings.recover_min_gap
@@ -695,7 +701,7 @@ class JobManager:
                             job.log(f"whisper 提示词：{prompt[:100]}")
                     else:
                         prompt = ""
-                        job.log(f"语音识别后端：腾讯云（{settings.tencent_engine}）")
+                        job.log(f"语音识别：腾讯云（{settings.tencent_engine}）")
                     run_asr(
                         settings,
                         artifacts["wav"],
