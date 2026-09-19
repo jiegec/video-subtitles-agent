@@ -35,7 +35,7 @@ from .transcribe import (
     extract_wav,
     group_blocks,
     probe_mean_volume,
-    run_whisper,
+    run_asr,
     strip_hallucinations,
 )
 from .video_config import VideoConfig
@@ -418,6 +418,12 @@ def _save_trajectory(
             "llm_thinking": settings.llm_thinking,
             "concurrency": settings.llm_concurrency,
             "frames_per_batch": settings.frame_max_per_batch,
+            "asr_backend": settings.asr_backend,
+            "asr_engine": (
+                settings.tencent_engine
+                if settings.asr_backend == "tencent"
+                else Path(settings.whisper_model).name
+            ),
             "whisper_model": str(settings.whisper_model),
         },
         "context": {
@@ -615,13 +621,18 @@ class JobManager:
                         regions = regions[: settings.recover_max_regions]
                         regions.sort(key=lambda r: r.start)
                     if regions:
-                        prompt = build_initial_prompt(settings, eff.glossary)
+                        prompt = (
+                            build_initial_prompt(settings, eff.glossary)
+                            if settings.asr_backend == "whisper"
+                            else ""
+                        )
                         recover_mod.recover_regions(
                             settings,
                             artifacts["wav"],
                             regions,
                             model=settings.recover_model,
                             prompt=prompt,
+                            glossary=eff.glossary,
                             log=job.log,
                             progress=step_progress,
                         )
@@ -635,8 +646,13 @@ class JobManager:
                             "min_cps": min_cps,
                             "low_conf_threshold": low_conf_thr,
                             "max_regions": settings.recover_max_regions,
-                            "model": str(settings.recover_model or settings.whisper_model),
-                            "extra_args": ["-mc", "0"],
+                            "backend": settings.asr_backend,
+                            "model": (
+                                str(settings.recover_model or settings.whisper_model)
+                                if settings.asr_backend == "whisper"
+                                else f"tencent:{settings.tencent_engine}"
+                            ),
+                            "extra_args": ["-mc", "0"] if settings.asr_backend == "whisper" else [],
                         },
                     )
                     recover_mod.save_report(artifacts["gaps"], report)
@@ -673,16 +689,21 @@ class JobManager:
                             job.log("⚠️ 音频电平偏低，转写质量可能受影响")
                     prefix = artifacts["whisper_json"].with_suffix("")
                     eff = video_config.effective(settings.frame_interval)
-                    prompt = build_initial_prompt(settings, eff.glossary)
-                    if prompt:
-                        job.log(f"whisper 提示词：{prompt[:100]}")
-                    run_whisper(
+                    if settings.asr_backend == "whisper":
+                        prompt = build_initial_prompt(settings, eff.glossary)
+                        if prompt:
+                            job.log(f"whisper 提示词：{prompt[:100]}")
+                    else:
+                        prompt = ""
+                        job.log(f"语音识别后端：腾讯云（{settings.tencent_engine}）")
+                    run_asr(
                         settings,
                         artifacts["wav"],
                         prefix,
                         job.log,
                         progress=step_progress,
                         prompt=prompt,
+                        glossary=eff.glossary,
                     )
                     step_progress(100)
                 elif step == "clean":

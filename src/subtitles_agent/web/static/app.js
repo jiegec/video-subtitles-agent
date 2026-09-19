@@ -195,7 +195,10 @@
       ? `LLM: ${cfg.llm_model}${cfg.llm_source === "pi" ? " · pi" : ""}`
       : "LLM 未配置";
     els.llmBadge.className = "badge " + (cfg.llm_enabled ? "on" : "off");
-    els.whisperBadge.textContent = `whisper: ${cfg.whisper_model.split("/").pop()}`;
+    els.whisperBadge.textContent =
+      cfg.asr_backend === "tencent"
+        ? "ASR: 腾讯云"
+        : `whisper: ${cfg.whisper_model.split("/").pop()}`;
   }
 
   // ---------------------------------------------------------------- 全局设置
@@ -211,11 +214,28 @@
       ],
     },
     {
-      title: "Whisper 转写",
+      title: "语音识别",
+      desc: "选择识别后端：本地 whisper-cli，或腾讯云录音文件识别。",
+      noteId: "asrNote",
       fields: [
-        { path: "whisper.lang", label: "语言", type: "text", placeholder: "zh" },
-        { path: "whisper.threads", label: "线程数", type: "number", min: 1 },
-        { path: "whisper.prompt", label: "初始提示词", type: "textarea", wide: true },
+        {
+          path: "asr.backend",
+          label: "识别后端",
+          type: "select",
+          wide: true,
+          options: [
+            { value: "whisper", label: "whisper-cli（本地）" },
+            { value: "tencent", label: "腾讯云录音文件识别（云端）" },
+          ],
+        },
+        { path: "whisper.lang", label: "语言", type: "text", placeholder: "zh", group: "whisper" },
+        { path: "whisper.threads", label: "线程数", type: "number", min: 1, group: "whisper" },
+        { path: "whisper.prompt", label: "初始提示词", type: "textarea", wide: true, group: "whisper" },
+        { path: "tencent.secret_id", label: "腾讯云 SecretId", type: "text", wide: true, group: "tencent" },
+        { path: "tencent.secret_key", label: "腾讯云 SecretKey", type: "password", wide: true, group: "tencent" },
+        { path: "tencent.region", label: "地域", type: "text", placeholder: "ap-shanghai", group: "tencent" },
+        { path: "tencent.engine", label: "引擎模型", type: "text", placeholder: "16k_zh", group: "tencent" },
+        { path: "tencent.chunk_seconds", label: "分段秒数(每段<5MB)", type: "number", min: 60, max: 1200, group: "tencent" },
       ],
     },
     {
@@ -241,6 +261,7 @@
         { path: "llm.timeout", label: "超时(秒)", type: "number", min: 1 },
         { path: "llm.thinking", label: "推理强度", type: "select", options: ["off", "low", "medium", "high", "auto"] },
       ],
+      footer: '<button type="button" id="llmTestBtn">测试连接</button><span id="llmTestResult" class="test-result"></span>',
     },
     {
       title: "字幕默认参数",
@@ -298,28 +319,30 @@
   function renderSettingField(field, value) {
     const current = value == null ? "" : value;
     const classes = field.wide ? ' class="wide"' : "";
+    const group = field.group ? ` data-group="${field.group}"` : "";
     const attrs = `data-path="${field.path}"`;
     if (field.type === "textarea") {
-      return `<label${classes}>${field.label}<textarea ${attrs} rows="2">${escapeHtml(current)}</textarea></label>`;
+      return `<label${classes}${group}>${field.label}<textarea ${attrs} rows="2">${escapeHtml(current)}</textarea></label>`;
     }
     if (field.type === "select") {
       const options = field.options
         .map((opt) => {
-          const value = typeof opt === "string" ? opt : opt.value;
+          const optValue = typeof opt === "string" ? opt : opt.value;
           const label = typeof opt === "string" ? opt : opt.label;
-          const selected = String(value) === String(current) ? " selected" : "";
-          return `<option value="${value}"${selected}>${label}</option>`;
+          const selected = String(optValue) === String(current) ? " selected" : "";
+          return `<option value="${optValue}"${selected}>${label}</option>`;
         })
         .join("");
-      return `<label${classes}>${field.label}<select ${attrs}>${options}</select></label>`;
+      return `<label${classes}${group}>${field.label}<select ${attrs}>${options}</select></label>`;
     }
     const min = field.min != null ? ` min="${field.min}"` : "";
+    const max = field.max != null ? ` max="${field.max}"` : "";
     const step = field.step != null ? ` step="${field.step}"` : "";
     const placeholder = field.placeholder ? ` placeholder="${field.placeholder}"` : "";
     if (field.type === "password") {
-      return `<label${classes}>${field.label}<span class="pw-wrap"><input type="password" ${attrs} value="${escapeHtml(current)}"${placeholder} /><button type="button" class="icon-btn" data-toggle-pw>显示</button></span></label>`;
+      return `<label${classes}${group}>${field.label}<span class="pw-wrap"><input type="password" ${attrs} value="${escapeHtml(current)}"${placeholder} /><button type="button" class="icon-btn" data-toggle-pw>显示</button></span></label>`;
     }
-    return `<label${classes}>${field.label}<input type="${field.type}" ${attrs} value="${escapeHtml(current)}"${min}${step}${placeholder} /></label>`;
+    return `<label${classes}${group}>${field.label}<input type="${field.type}" ${attrs} value="${escapeHtml(current)}"${min}${max}${step}${placeholder} /></label>`;
   }
 
   function renderSettingsForm(configData, configName) {
@@ -329,7 +352,8 @@
         .join("");
       const desc = section.desc ? `<p class="hint">${section.desc}</p>` : "";
       const note = section.noteId ? `<p class="llm-source-note" id="${section.noteId}"></p>` : "";
-      return `<section class="settings-section"><h3>${section.title}</h3>${desc}${note}<div class="settings-grid">${fields}</div></section>`;
+      const footer = section.footer ? `<div class="settings-footer">${section.footer}</div>` : "";
+      return `<section class="settings-section"><h3>${section.title}</h3>${desc}${note}<div class="settings-grid">${fields}</div>${footer}</section>`;
     }).join("");
     els.settingsModal.innerHTML = `
       <div class="modal-card settings-card">
@@ -354,7 +378,12 @@
       els.settingsModal.classList.remove("hidden");
       const sourceEl = els.settingsModal.querySelector('[data-path="llm.source"]');
       if (sourceEl) sourceEl.addEventListener("change", updateLlmSourceFields);
+      const asrEl = els.settingsModal.querySelector('[data-path="asr.backend"]');
+      if (asrEl) asrEl.addEventListener("change", updateAsrFields);
+      const testBtn = els.settingsModal.querySelector("#llmTestBtn");
+      if (testBtn) testBtn.addEventListener("click", testLlm);
       updateLlmSourceFields();
+      updateAsrFields();
     } catch (err) {
       toast(err.message, "error");
     }
@@ -386,12 +415,22 @@
     }
   }
 
-  function closeSettings() {
-    els.settingsModal.classList.add("hidden");
-    els.settingsModal.innerHTML = "";
+  function updateAsrFields() {
+    const backendEl = els.settingsModal.querySelector('[data-path="asr.backend"]');
+    if (!backendEl) return;
+    const backend = backendEl.value;
+    els.settingsModal.querySelectorAll("[data-group]").forEach((el) => {
+      el.classList.toggle("hidden", el.dataset.group !== backend);
+    });
+    const note = els.settingsModal.querySelector("#asrNote");
+    if (!note) return;
+    note.textContent =
+      backend === "tencent"
+        ? "腾讯云按量计费；音频会自动分片上传（每段 < 5MB），需填好 SecretId / SecretKey。首次使用需安装：uv sync --extra tencent。"
+        : "本地识别，需要安装 whisper-cli 并准备好模型文件。";
   }
 
-  async function saveSettings() {
+  function collectSettingsForm() {
     const data = {};
     els.settingsModal.querySelectorAll("[data-path]").forEach((el) => {
       if (el.disabled) return;
@@ -404,6 +443,40 @@
         setPath(data, el.dataset.path, el.value);
       }
     });
+    return data;
+  }
+
+  async function testLlm() {
+    const button = els.settingsModal.querySelector("#llmTestBtn");
+    const output = els.settingsModal.querySelector("#llmTestResult");
+    if (!button || !output) return;
+    button.disabled = true;
+    output.className = "test-result";
+    output.textContent = "测试中…";
+    try {
+      const form = collectSettingsForm();
+      const data = await api("/api/llm/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { llm: form.llm || {} } }),
+      });
+      output.className = "test-result ok";
+      output.textContent = `✓ ${data.model} · ${data.elapsed}s · 回复：${data.reply || "(空)"}`;
+    } catch (err) {
+      output.className = "test-result error";
+      output.textContent = `✗ ${err.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function closeSettings() {
+    els.settingsModal.classList.add("hidden");
+    els.settingsModal.innerHTML = "";
+  }
+
+  async function saveSettings() {
+    const data = collectSettingsForm();
     const status = els.settingsModal.querySelector("#settingsStatus");
     if (status) status.textContent = "保存中…";
     try {

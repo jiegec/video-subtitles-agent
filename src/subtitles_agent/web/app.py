@@ -16,7 +16,7 @@ from ..backup import backup_srt, backups_dir_for, list_backups
 from ..config import config_path, load_settings, save_settings
 from ..context import build_reference, read_document
 from ..library import Library
-from ..llm import LLMClient
+from ..llm import LLMClient, LLMError
 from ..pipeline import VALID_STEPS, JobManager
 from ..subtitles import Cue, cues_to_srt, diff_cues, merge_cue_lists, normalize_cues, parse_srt
 from ..trajectory import load_trace
@@ -62,6 +62,7 @@ def get_config() -> dict:
         "whisper_bin": settings.whisper_bin,
         "whisper_model": str(settings.whisper_model),
         "whisper_lang": settings.whisper_lang,
+        "asr_backend": settings.asr_backend,
         "llm_enabled": settings.has_llm,
         "llm_source": settings.llm_source,
         "llm_model": settings.llm_model if settings.has_llm else None,
@@ -124,6 +125,32 @@ def put_settings(payload: dict = Body(...)) -> dict:
     settings.copy_from(updated)
     library.clear_duration_cache()
     return {"ok": True, "config_path": str(path), "settings": settings.to_dict()}
+
+
+@app.post("/api/llm/test")
+def test_llm(payload: dict = Body(default=None)) -> dict:
+    """用当前（或表单里尚未保存的）LLM 配置发一个最小请求，验证是否可用。"""
+    data = payload.get("settings") if isinstance(payload, dict) else None
+    try:
+        target = settings.updated_with(data) if isinstance(data, dict) else settings
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"配置无效：{exc}") from exc
+    if not target.has_llm:
+        raise HTTPException(status_code=400, detail="未配置 LLM（需要 base_url / api_key / model）")
+    client = LLMClient(target)
+    try:
+        result = client.test_connection()
+    except LLMError as exc:
+        raise HTTPException(status_code=400, detail=f"连接失败：{exc}") from exc
+    finally:
+        client.close()
+    return {
+        "ok": True,
+        "model": result.model,
+        "elapsed": round(result.elapsed, 2),
+        "reply": result.content.strip()[:200],
+        "usage": result.usage,
+    }
 
 
 # --------------------------------------------------------------------------- #

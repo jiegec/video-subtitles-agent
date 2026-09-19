@@ -6,8 +6,9 @@
 
 - 扫描 `project/` 目录下的视频
 - 用 `ffmpeg` 抽取音频（`.wav` 保存在视频旁边）
-- 用 `whisper-cli` 转写（带 token 级时间戳，`.whisper.json` 保存在视频旁边）
-- 用 LLM 纠正识别错误、去除口语、按最大字数重新断句
+- 用 `ffmpeg` 抽取音频（`.wav` 保存在视频旁边）
+- 语音识别后端可选：本地 `whisper-cli`（带 token 级时间戳），或**腾讯云录音文件识别**（云端，自动分片上传）
+- 用 LLM 纠正识别错误、去除口语、按最大字数重新断句；设置里可**一键测试 LLM 连接**
 - **结合视频画面截图**（多模态）与**资料 / 术语表**提高纠错准确率
 - 网页里预览、逐句编辑（**自动保存**），支持 0.5×–3× 倍速播放（快捷键 `[` / `]`）
 - 自动保留 SRT 历史版本到 `<视频名>.backups/`，可一键恢复；重新生成时先展示与旧版的 diff，可选择覆盖 / 合并 / 保留旧版
@@ -39,7 +40,8 @@ uv run subtitles-agent --port 9000
 
 - Python 3.11+
 - `ffmpeg` / `ffprobe`
-- `whisper-cli`（whisper.cpp）与已下载的模型，默认 `./ggml-medium.bin`
+- `whisper-cli`（whisper.cpp）与已下载的模型，默认 `./ggml-medium.bin`（仅 whisper 后端需要）
+- 腾讯云后端需要可选依赖：`uv sync --extra tencent`
 
 ## 配置
 
@@ -47,7 +49,8 @@ uv run subtitles-agent --port 9000
 
 - **推荐**：启动后点网页右上角的「⚙ 设置」，在弹出的表单里填写并保存，配置会立即写入 `config.toml` 并生效，无需重启。
 - 也可以直接用文本编辑器改 `config.toml`（相对路径都相对于本文件所在目录），然后重启服务。
-- LLM 默认 `source = "pi"`：接口地址 / 密钥 / 模型从 `~/.pi/agent/*` 实时读取，**不会写入 `config.toml`**。想自己指定就改成 `source = "manual"` 并填写下面三项。
+- 语音识别后端在「设置 → 语音识别」里选择：`whisper`（本地）或 `tencent`（腾讯云）。
+- LLM 默认 `source = "pi"`：接口地址 / 密钥 / 模型从 `~/.pi/agent/*` 实时读取，**不会写入 `config.toml`**。想自己指定就改成 `source = "manual"` 并填写下面三项。设置里的「测试连接」可以发一个最小请求验证是否可用。
 - 优先级：`config.toml` > `~/.pi/agent/*`（仅当 `source = "pi"` 时用于取模型） > 内置默认值。
 
 `config.toml` 的结构如下（首次保存后自动生成）：
@@ -63,6 +66,16 @@ whisper_model = "ggml-medium.bin"
 lang = "zh"
 threads = 5
 prompt = "以下是简体中文的语音内容。"
+
+[asr]
+backend = "whisper"             # whisper | tencent
+
+[tencent]                        # backend = "tencent" 时填写
+secret_id = ""
+secret_key = ""
+region = "ap-shanghai"
+engine = "16k_zh"
+chunk_seconds = 600              # 每段秒数，保证单段 < 5MB（base64 上传限制）
 
 [llm]
 source = "pi"                    # pi = 从 ~/.pi/agent 读取；manual = 手动填写下面三项
@@ -218,7 +231,8 @@ src/subtitles_agent/
   frames.py          # 视频截图
   recover.py         # 漏识别检测与补转
   backup.py          # SRT 历史版本
-  transcribe.py      # ffmpeg / whisper-cli
+  transcribe.py      # ffmpeg / whisper-cli / ASR 后端调度
+  tencent_asr.py     # 腾讯云录音文件识别后端
   llm.py             # OpenAI 兼容 LLM 客户端（支持多模态）
   subtitles.py        # SRT 读写 + 时间轴对齐/重排
   trajectory.py      # 生成轨迹（diff + 落盘）

@@ -223,6 +223,36 @@ def run_whisper(
     return json_path
 
 
+def run_asr(
+    settings: Settings,
+    wav: Path,
+    out_prefix: Path,
+    log: LogFn = _noop,
+    progress: Callable[[int], None] | None = None,
+    prompt: str = "",
+    glossary: list[dict] | None = None,
+    model: Path | None = None,
+    extra_args: list[str] | None = None,
+) -> Path:
+    """按配置选择语音识别后端（whisper / 腾讯云），输出统一的 JSON 结构。"""
+    if (settings.asr_backend or "whisper").lower() == "tencent":
+        from .tencent_asr import transcribe as tencent_transcribe
+
+        return tencent_transcribe(
+            settings, wav, out_prefix, log=log, progress=progress, glossary=glossary
+        )
+    return run_whisper(
+        settings,
+        wav,
+        out_prefix,
+        log=log,
+        progress=progress,
+        prompt=prompt,
+        model=model,
+        extra_args=extra_args,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 解析与分块
 # --------------------------------------------------------------------------- #

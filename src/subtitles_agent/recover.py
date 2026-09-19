@@ -24,7 +24,7 @@ from typing import Callable
 
 from .config import Settings
 from .subtitles import _is_special_token
-from .transcribe import Segment, load_segments, probe_duration, run_whisper
+from .transcribe import Segment, load_segments, probe_duration, run_asr
 
 _SIL_START = re.compile(r"silence_start:\s*(-?\d+(?:\.\d+)?)")
 _SIL_END = re.compile(r"silence_end:\s*(-?\d+(?:\.\d+)?)")
@@ -264,6 +264,7 @@ def recover_regions(
     model: Path | None = None,
     extra_args: list[str] | None = None,
     prompt: str = "",
+    glossary: list[dict] | None = None,
     log: Callable[[str], None] = lambda _: None,
     progress: Callable[[int], None] | None = None,
 ) -> list[Region]:
@@ -278,13 +279,14 @@ def recover_regions(
             prefix = tmp_dir / f"region_{index:04d}"
             try:
                 _slice_wav(settings, wav, region, slice_path)
-                json_path = run_whisper(
+                json_path = run_asr(
                     settings,
                     slice_path,
                     prefix,
                     model=model,
                     extra_args=extra_args,
                     prompt=prompt,
+                    glossary=glossary,
                 )
                 data = json.loads(json_path.read_text(encoding="utf-8"))
                 delta = int(round(region.start * 1000))

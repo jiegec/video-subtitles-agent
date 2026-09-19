@@ -41,6 +41,16 @@ DEFAULT_CONFIG: dict = {
         "threads": max(2, (os.cpu_count() or 4) // 2),
         "prompt": "以下是简体中文的语音内容。",
     },
+    "asr": {
+        "backend": "whisper",  # whisper | tencent
+    },
+    "tencent": {
+        "secret_id": "",
+        "secret_key": "",
+        "region": "ap-shanghai",
+        "engine": "16k_zh",
+        "chunk_seconds": 600,
+    },
     "llm": {
         "source": "pi",
         "base_url": "https://api.openai.com/v1",
@@ -292,6 +302,14 @@ class Settings:
     whisper_prompt: str
     ffmpeg_bin: str
 
+    asr_backend: str
+
+    tencent_secret_id: str
+    tencent_secret_key: str
+    tencent_region: str
+    tencent_engine: str
+    tencent_chunk_seconds: int
+
     llm_source: str
     llm_base_url: str
     llm_api_key: str
@@ -359,6 +377,16 @@ class Settings:
                 "threads": self.whisper_threads,
                 "prompt": self.whisper_prompt,
             },
+            "asr": {
+                "backend": self.asr_backend,
+            },
+            "tencent": {
+                "secret_id": self.tencent_secret_id,
+                "secret_key": self.tencent_secret_key,
+                "region": self.tencent_region,
+                "engine": self.tencent_engine,
+                "chunk_seconds": self.tencent_chunk_seconds,
+            },
             "llm": {
                 "source": self.llm_source,
                 "base_url": "" if self.llm_source == "pi" else self.llm_base_url,
@@ -412,6 +440,8 @@ class Settings:
 def _settings_from_dict(data: dict, base_dir: Path) -> Settings:
     paths = _table(data, "paths")
     whisper = _table(data, "whisper")
+    asr = _table(data, "asr")
+    tencent = _table(data, "tencent")
     llm = _table(data, "llm")
     subtitles = _table(data, "subtitles")
     frames = _table(data, "frames")
@@ -438,6 +468,24 @@ def _settings_from_dict(data: dict, base_dir: Path) -> Settings:
         ),
         whisper_prompt=_as_str(whisper.get("prompt"), DEFAULT_CONFIG["whisper"]["prompt"]),
         ffmpeg_bin=_as_str(paths.get("ffmpeg_bin"), DEFAULT_CONFIG["paths"]["ffmpeg_bin"]),
+        asr_backend=(
+            "tencent" if str(asr.get("backend") or "").lower() == "tencent" else "whisper"
+        ),
+        tencent_secret_id=str(tencent.get("secret_id") or ""),
+        tencent_secret_key=str(tencent.get("secret_key") or ""),
+        tencent_region=_as_str(
+            tencent.get("region"), DEFAULT_CONFIG["tencent"]["region"]
+        ),
+        tencent_engine=_as_str(
+            tencent.get("engine"), DEFAULT_CONFIG["tencent"]["engine"]
+        ),
+        tencent_chunk_seconds=min(
+            1200,
+            max(
+                60,
+                _as_int(tencent.get("chunk_seconds"), DEFAULT_CONFIG["tencent"]["chunk_seconds"]),
+            ),
+        ),
         llm_source=("manual" if llm.get("source") == "manual" else "pi"),
         llm_base_url=_as_str(llm.get("base_url"), DEFAULT_CONFIG["llm"]["base_url"]).rstrip("/"),
         llm_api_key=str(llm.get("api_key") or ""),

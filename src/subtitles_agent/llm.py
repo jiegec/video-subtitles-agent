@@ -149,7 +149,23 @@ class LLMClient:
     def chat_result(
         self, user_content, max_tokens: int | None = None, temperature: float = 0.2
     ) -> ChatResult:
-        payload = self._payload(user_content, max_tokens, temperature)
+        return self._request(self._payload(user_content, max_tokens, temperature))
+
+    def test_connection(self) -> ChatResult:
+        """最小请求，用于在设置里验证接口地址 / 密钥 / 模型是否可用。"""
+        payload = {
+            "model": self.settings.llm_model,
+            "messages": [{"role": "user", "content": "请只回复两个字：正常"}],
+            "temperature": 0.0,
+            "max_tokens": 32,
+        }
+        thinking = (self.settings.llm_thinking or "auto").lower()
+        effort = {"off": "none", "low": "low", "medium": "medium", "high": "high"}.get(thinking)
+        if effort:
+            payload["reasoning_effort"] = effort
+        return self._request(payload)
+
+    def _request(self, payload: dict) -> ChatResult:
         last_error: Exception | None = None
         started = time.time()
         for attempt in range(1, 4):
@@ -174,8 +190,6 @@ class LLMClient:
                             f"模型未返回内容（finish_reason={choice.get('finish_reason')}，"
                             f"reasoning {len(reasoning)} 字）"
                         )
-                if choice.get("finish_reason") == "length" and '"items"' not in content:
-                    raise LLMError("模型输出被截断，未得到完整 JSON")
                 return ChatResult(
                     content=content,
                     usage=_usage_summary(data.get("usage")),
@@ -240,6 +254,8 @@ class LLMClient:
             user_content = request_text
 
         result = self.chat_result(user_content)
+        if result.finish_reason == "length" and '"items"' not in result.content:
+            raise LLMError("模型输出被截断，未得到完整 JSON")
         raw = result.content
         parsed = _extract_json(raw)
 

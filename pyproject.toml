@@ -16,6 +16,11 @@ dependencies = [
 [project.scripts]
 subtitles-agent = "subtitles_agent.__main__:main"
 
+[project.optional-dependencies]
+tencent = [
+    "tencentcloud-sdk-python>=3.1.177",
+]
+
 [dependency-groups]
 dev = [
     "ruff>=0.6",
