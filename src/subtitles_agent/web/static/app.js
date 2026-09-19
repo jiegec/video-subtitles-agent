@@ -1084,9 +1084,8 @@
 
     const glossary = (ctx.glossary || [])
       .map((g) => {
-        const aliases = (g.aliases || []).length ? ` <em>= ${escapeHtml(g.aliases.join("、"))}</em>` : "";
         const note = g.note ? ` <span class="muted">${escapeHtml(g.note)}</span>` : "";
-        return `<span class="gloss-item">${escapeHtml(g.term)}${aliases}${note}</span>`;
+        return `<span class="gloss-item">${escapeHtml(g.term)}${note}</span>`;
       })
       .join("");
 
@@ -1247,7 +1246,6 @@
     return (list || [])
       .map((g) => {
         let line = g.term || "";
-        if (g.aliases && g.aliases.length) line += " = " + g.aliases.join(", ");
         if (g.note) line += " | " + g.note;
         return line;
       })
@@ -1260,20 +1258,17 @@
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
-        let note = "";
-        const bar = line.indexOf("|");
-        if (bar >= 0) {
-          note = line.slice(bar + 1).trim();
-          line = line.slice(0, bar).trim();
-        }
         let term = line;
-        let aliases = [];
-        const eq = line.indexOf("=");
-        if (eq >= 0) {
-          term = line.slice(0, eq).trim();
-          aliases = line.slice(eq + 1).split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+        let note = "";
+        for (const sep of ["|", "="]) {
+          const index = line.indexOf(sep);
+          if (index >= 0) {
+            term = line.slice(0, index).trim();
+            note = line.slice(index + 1).trim();
+            break;
+          }
         }
-        return { term, aliases, note };
+        return { term, note };
       })
       .filter((g) => g.term);
   }

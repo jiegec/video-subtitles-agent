@@ -124,7 +124,7 @@ interval = 120.0
   "title": "第一周 第一小节",
   "context": "这个视频讲了……",
   "glossary": [
-    { "term": "哈希表", "aliases": ["哈西表"], "note": "数据结构" }
+    { "term": "哈希表", "note": "数据结构" }
   ],
   "documents": ["资料/第一周.pdf", "https://example.com/notes"],
   "frame_interval": 45
@@ -133,7 +133,7 @@ interval = 120.0
 
 - **复用**：在网页里选择另一个视频的配置一键覆盖到当前视频
 - **导入 / 导出**：上传一个现成的 `.subtitles.json`，或把当前配置导出保存
-- 术语表会同时用于 whisper 的 `--prompt`（提高专有名词识别率）和 LLM 纠错
+- 术语表会同时用于 whisper 的 `--prompt`、腾讯云的热词表（提高专有名词识别率）和 LLM 纠错
 - 资料很长时，会先让 LLM 压缩成「摘要 + 术语表」并缓存到 `<视频名>.context.json`，避免每次请求都塞入整份文档
 
 ## 产物

@@ -163,11 +163,12 @@ def test_backup_dedupe_and_history(tmp_path):
 # video config
 # --------------------------------------------------------------------------- #
 def test_normalize_glossary_and_documents():
-    assert normalize_glossary(["哈希表 = 哈西表"]) == [
-        {"term": "哈希表", "aliases": [], "note": "哈西表"}
+    assert normalize_glossary(["哈希表 | 数据结构"]) == [
+        {"term": "哈希表", "note": "数据结构"}
     ]
-    assert normalize_glossary([{"term": "文件", "aliases": ["文见"]}]) == [
-        {"term": "文件", "aliases": ["文见"], "note": ""}
+    assert normalize_glossary(["哈希表 = 哈西表"]) == [{"term": "哈希表", "note": "哈西表"}]
+    assert normalize_glossary([{"term": "文件", "note": "文见"}]) == [
+        {"term": "文件", "note": "文见"}
     ]
     assert normalize_documents("a.pdf") == ["a.pdf"]
 
@@ -178,7 +179,7 @@ def test_video_config_roundtrip(tmp_path):
         {
             "title": "标题",
             "context": "背景",
-            "glossary": [{"term": "文件", "aliases": ["文见"]}],
+            "glossary": [{"term": "文件"}],
             "documents": ["a.pdf"],
             "frame_interval": 30,
         }

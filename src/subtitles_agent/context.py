@@ -111,8 +111,8 @@ def _digest_key(eff: EffectiveContext, docs: list[tuple[str, str]]) -> str:
 
 
 DIGEST_PROMPT = """下面是视频的背景信息与参考资料。请阅读后输出一个 JSON：
-{"summary": "用 300 字以内概括这份资料里和视频内容最相关、最可能被语音识别弄错的背景知识", "terms": [{"term": "正确写法", "aliases": ["常见误识别写法"], "note": "一句话说明"}]}
-terms 请提取资料中出现的专业术语、人名、专有名词、缩写、公式名等，aliases 填写语音识别可能听错的同音词，最多 60 条。
+{"summary": "用 300 字以内概括这份资料里和视频内容最相关、最可能被语音识别弄错的背景知识", "terms": [{"term": "正确写法", "note": "一句话说明"}]}
+terms 请提取资料中出现的专业术语、人名、专有名词、缩写、公式名等，最多 60 条。
 只输出 JSON，不要解释。"""
 
 
@@ -207,7 +207,6 @@ def build_reference(
             glossary.append(
                 {
                     "term": str(term["term"]),
-                    "aliases": [str(a) for a in (term.get("aliases") or [])],
                     "note": str(term.get("note", "")),
                 }
             )
@@ -234,11 +233,8 @@ def build_reference(
             if name in seen:
                 continue
             seen.add(name)
-            aliases = "、".join(term.get("aliases") or [])
             note = term.get("note") or ""
             line = f"- {name}"
-            if aliases:
-                line += f"（易误听为：{aliases}）"
             if note:
                 line += f"：{note}"
             items.append(line)

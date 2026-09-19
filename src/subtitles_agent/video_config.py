@@ -9,7 +9,7 @@
   "version": 1,
   "title": "第一周 第一小节",
   "context": "本视频讲了……",
-  "glossary": [{"term": "哈希表", "aliases": ["哈西表"], "note": "数据结构"}],
+  "glossary": [{"term": "哈希表", "note": "数据结构"}],
   "documents": ["资料/第一周.pdf", "https://..."],
   "frame_interval": 45
 }
@@ -45,7 +45,7 @@ def default_config() -> dict:
 
 
 def normalize_glossary(raw) -> list[dict]:
-    """统一成 [{"term","aliases","note"}]。"""
+    """统一成 [{"term","note"}]。"""
     result: list[dict] = []
     if not raw:
         return result
@@ -58,19 +58,16 @@ def normalize_glossary(raw) -> list[dict]:
             text = item.strip()
             if not text:
                 continue
-            if "=" in text:
-                term, _, note = text.partition("=")
-                result.append({"term": term.strip(), "aliases": [], "note": note.strip()})
-            else:
-                result.append({"term": text, "aliases": [], "note": ""})
+            term, note = text, ""
+            for sep in ("|", "="):
+                if sep in text:
+                    term, _, note = text.partition(sep)
+                    break
+            result.append({"term": term.strip(), "note": note.strip()})
         elif isinstance(item, dict) and item.get("term"):
-            aliases = item.get("aliases") or []
-            if isinstance(aliases, str):
-                aliases = [a.strip() for a in aliases.replace("，", ",").split(",") if a.strip()]
             result.append(
                 {
                     "term": str(item["term"]).strip(),
-                    "aliases": [str(a).strip() for a in aliases if str(a).strip()],
                     "note": str(item.get("note", "")).strip(),
                 }
             )
