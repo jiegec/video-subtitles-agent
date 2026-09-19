@@ -195,7 +195,7 @@ def generate_srt(
     video_config: VideoConfig,
     video: Path,
     rel_path: str,
-    whisper_json: Path,
+    asr_json: Path,
     srt_path: Path,
     *,
     max_chars: int,
@@ -213,9 +213,9 @@ def generate_srt(
     eff = video_config.effective(default_frame_interval=settings.frame_interval)
     interval = int(frame_interval or eff.frame_interval or settings.frame_interval)
 
-    log(f"读取转写：{whisper_json.name}")
+    log(f"读取识别结果：{asr_json.name}")
     gaps_report = load_gaps_report(gaps_path)
-    segments = load_merged_segments(whisper_json, gaps_report)
+    segments = load_merged_segments(asr_json, gaps_report)
     if not segments:
         raise RuntimeError("转写结果为空，无法生成字幕")
     if gaps_report:
@@ -593,10 +593,10 @@ class JobManager:
                 if step == "recover":
                     if not artifacts["wav"].is_file():
                         raise RuntimeError("缺少音频，请先抽取音频")
-                    if not artifacts["whisper_json"].is_file():
+                    if not artifacts["asr_json"].is_file():
                         raise RuntimeError("缺少语音识别结果，请先转写")
                     eff = video_config.effective(settings.frame_interval)
-                    base_segments = load_merged_segments(artifacts["whisper_json"], None)
+                    base_segments = load_merged_segments(artifacts["asr_json"], None)
                     min_gap = settings.recover_min_gap
                     min_cps = settings.recover_min_cps
                     low_conf_thr = settings.recover_low_conf_threshold
@@ -693,7 +693,7 @@ class JobManager:
                         job.log(f"音频平均音量：{mean_db:.1f} dB")
                         if mean_db < -45:
                             job.log("⚠️ 音频电平偏低，转写质量可能受影响")
-                    prefix = artifacts["whisper_json"].with_suffix("")
+                    prefix = artifacts["asr_json"].with_suffix("")
                     eff = video_config.effective(settings.frame_interval)
                     if settings.asr_backend == "whisper":
                         prompt = build_initial_prompt(settings, eff.glossary)
@@ -718,7 +718,7 @@ class JobManager:
                         video_config,
                         video,
                         job.path,
-                        artifacts["whisper_json"],
+                        artifacts["asr_json"],
                         artifacts["srt"],
                         max_chars=int(options.get("max_chars", settings.default_max_chars)),
                         min_duration=float(options.get("min_duration", settings.default_min_duration)),

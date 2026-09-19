@@ -348,10 +348,11 @@ class Settings:
     def artifact_paths(self, rel_path: str) -> dict[str, Path]:
         video = self.project_dir / rel_path
         stem = video.with_suffix("")
+        asr_json = video.parent / (video.stem + ".asr.json")
         return {
             "video": video,
             "wav": stem.with_suffix(".wav"),
-            "whisper_json": video.parent / (video.stem + ".whisper.json"),
+            "asr_json": asr_json,
             "srt": video.parent / (video.stem + ".srt"),
             "frames_dir": video.parent / (video.stem + ".frames"),
             "context_cache": video.parent / (video.stem + ".context.json"),

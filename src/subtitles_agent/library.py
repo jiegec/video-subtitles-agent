@@ -55,7 +55,7 @@ class Library:
         rel = str(video.relative_to(self.settings.project_dir))
         artifacts = self.settings.artifact_paths(rel)
         wav = artifacts["wav"]
-        whisper_json = artifacts["whisper_json"]
+        asr_json = artifacts["asr_json"]
         srt = artifacts["srt"]
         cue_count = 0
         srt_mtime = None
@@ -74,7 +74,7 @@ class Library:
             "size": video.stat().st_size if video.exists() else 0,
             "duration": self._duration(video),
             "has_wav": wav.is_file(),
-            "has_whisper": whisper_json.is_file(),
+            "has_asr": asr_json.is_file(),
             "has_srt": srt.is_file(),
             "has_config": artifacts["config"].is_file(),
             "has_frames": frame_count > 0,

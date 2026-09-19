@@ -74,9 +74,13 @@ def probe_mean_volume(settings: Settings, wav: Path) -> float | None:
 def choose_mono_filter(
     settings: Settings, media: Path, log: LogFn = _noop, sample: float = 120.0
 ) -> str | None:
-    """选单声道混音方式，避免左右声道反相时 `-ac 1` 相互抵消。
+    """选单声道混音方式。
 
     返回 pan 表达式（如 "c0=c0"），None 表示直接 `-ac 1` 平均即可。
+    两种情况需要只取一个声道：
+
+    - 只有一个声道有声音（两个声道电平相差很大）；
+    - 左右声道反相（电平接近但混单后相互抵消，明显变低）。
     """
     left = _mean_volume(settings, media, "c0=c0", sample)
     right = _mean_volume(settings, media, "c0=c1", sample)
@@ -86,12 +90,27 @@ def choose_mono_filter(
     if summed is None:
         return None
     loudest = max(left, right)
-    # 正常同相：混单与单声道差不多（<=4dB）；一强一弱会低 ~6dB；反相会低很多
-    if summed >= loudest - 4:
-        return None
+    quietest = min(left, right)
+    if loudest <= _SILENT_DB:
+        return None  # 两个声道都基本无声
     channel = "左" if left >= right else "右"
-    log(f"⚠️ 检测到左右声道反相（左 {left:.1f}dB / 右 {right:.1f}dB / 混单 {summed:.1f}dB），改用{channel}声道提取")
-    return "c0=c0" if left >= right else "c0=c1"
+
+    # 一个声道明显更弱：通常只有单边有声音（例如右声道静音）
+    if loudest - quietest >= _ONE_CHANNEL_DB:
+        log(
+            f"⚠️ 检测到只有{channel}声道有声音（左 {left:.1f}dB / 右 {right:.1f}dB），"
+            f"改用{channel}声道提取"
+        )
+        return "c0=c0" if left >= right else "c0=c1"
+
+    # 两个声道电平接近，但混单比单声道还低很多 → 反相抵消
+    if summed < loudest - _PHASE_CANCEL_DB:
+        log(
+            f"⚠️ 检测到左右声道反相（左 {left:.1f}dB / 右 {right:.1f}dB / 混单 {summed:.1f}dB），"
+            f"改用{channel}声道提取"
+        )
+        return "c0=c0" if left >= right else "c0=c1"
+    return None
 
 
 def extract_wav(settings: Settings, video: Path, wav: Path, log: LogFn = _noop) -> Path:
@@ -149,6 +168,11 @@ def probe_duration(settings: Settings, media: Path) -> float | None:
 # --------------------------------------------------------------------------- #
 _PROGRESS_RE = re.compile(r"progress\s*=\s*(\d+)%")
 _VOLUME_RE = re.compile(r"mean_volume:\s*(-?[\d.]+) dB")
+
+# 声道处理阈值
+_SILENT_DB = -70.0  # 低于此值视为基本无声
+_ONE_CHANNEL_DB = 12.0  # 两声道电平差超过此值视为只有单边有声音
+_PHASE_CANCEL_DB = 6.0  # 混单比最响声道低超过此值视为反相抵消
 
 
 def run_whisper(
@@ -309,8 +333,8 @@ def strip_hallucinations(
     return kept, removed
 
 
-def load_segments(whisper_json: Path) -> list[Segment]:
-    data = json.loads(whisper_json.read_text(encoding="utf-8"))
+def load_segments(asr_json: Path) -> list[Segment]:
+    data = json.loads(asr_json.read_text(encoding="utf-8"))
     segments: list[Segment] = []
     for item in data.get("transcription", []):
         offsets = item.get("offsets") or {}

@@ -547,7 +547,7 @@
       item.dataset.path = video.path;
       const chips = [];
       chips.push(`<span class="chip ${video.has_wav ? "ok" : ""}">WAV</span>`);
-      chips.push(`<span class="chip ${video.has_whisper ? "ok" : ""}">ASR</span>`);
+      chips.push(`<span class="chip ${video.has_asr ? "ok" : ""}">ASR</span>`);
       chips.push(`<span class="chip ${video.has_srt ? "ok" : "warn"}">${video.has_srt ? "SRT " + video.cue_count : "无字幕"}</span>`);
       if (video.duration) chips.push(`<span class="chip">${formatDuration(video.duration)}</span>`);
       if (video.recovery_regions)

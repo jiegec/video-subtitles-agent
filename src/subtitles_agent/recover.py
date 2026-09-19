@@ -363,13 +363,13 @@ def _overlap_ratio(seg: Segment, interval: tuple[float, float]) -> float:
     return overlap / span
 
 
-def load_merged_segments(whisper_json: Path, report: dict | None) -> list[Segment]:
+def load_merged_segments(asr_json: Path, report: dict | None) -> list[Segment]:
     """把原转写与「时间缺口」的补齐结果合并成一个时间轴。
 
     只有 gap（有语音但完全没转写）才插入时间轴；sparse / low_conf 属于「已有转写但可能不准」，
     用 build_alts() 作为「另一版识别」交给 LLM 参考，避免直接替换丢失内容。
     """
-    original = load_segments(whisper_json)
+    original = load_segments(asr_json)
     if not report:
         return original
     inserts: list[Segment] = []
