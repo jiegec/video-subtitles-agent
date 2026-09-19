@@ -45,10 +45,10 @@ uv run subtitles-agent --port 9000
 
 所有配置都放在**一个 `config.toml` 文件**里。
 
-- 首次运行会自动使用默认值；如果检测到 `~/.pi/agent/*` 里的 OpenAI 兼容配置，会作为 LLM 默认值。
 - **推荐**：启动后点网页右上角的「⚙ 设置」，在弹出的表单里填写并保存，配置会立即写入 `config.toml` 并生效，无需重启。
 - 也可以直接用文本编辑器改 `config.toml`（相对路径都相对于本文件所在目录），然后重启服务。
-- 优先级：`config.toml` > `~/.pi/agent/*`（仅用于推断 LLM） > 内置默认值。
+- LLM 默认 `source = "pi"`：接口地址 / 密钥 / 模型从 `~/.pi/agent/*` 实时读取，**不会写入 `config.toml`**。想自己指定就改成 `source = "manual"` 并填写下面三项。
+- 优先级：`config.toml` > `~/.pi/agent/*`（仅当 `source = "pi"` 时用于取模型） > 内置默认值。
 
 `config.toml` 的结构如下（首次保存后自动生成）：
 
@@ -64,10 +64,11 @@ lang = "zh"
 threads = 5
 prompt = "以下是简体中文的语音内容。"
 
-[llm]                            # 任意 OpenAI 兼容接口，留空 api_key 则跳过 LLM
-base_url = "https://api.openai.com/v1"
+[llm]
+source = "pi"                    # pi = 从 ~/.pi/agent 读取；manual = 手动填写下面三项
+base_url = ""                    # source = manual 时生效
 api_key = ""
-model = "deepseek-v4-flash"
+model = ""
 concurrency = 4
 max_tokens = 16384
 timeout = 180.0

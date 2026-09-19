@@ -19,6 +19,7 @@
     view: "edit",
     saveTimer: null,
     preGenHadSrt: false,
+    llmResolved: null,
   };
 
   const els = {
@@ -190,7 +191,9 @@
     els.minDuration.value = cfg.default_min_duration;
     els.blockChars.value = cfg.llm_block_chars;
     els.ctxFrameInterval.value = cfg.frame_interval;
-    els.llmBadge.textContent = cfg.llm_enabled ? `LLM: ${cfg.llm_model}` : "LLM 未配置";
+    els.llmBadge.textContent = cfg.llm_enabled
+      ? `LLM: ${cfg.llm_model}${cfg.llm_source === "pi" ? " · pi" : ""}`
+      : "LLM 未配置";
     els.llmBadge.className = "badge " + (cfg.llm_enabled ? "on" : "off");
     els.whisperBadge.textContent = `whisper: ${cfg.whisper_model.split("/").pop()}`;
   }
@@ -217,11 +220,22 @@
     },
     {
       title: "LLM（OpenAI 兼容）",
-      desc: "不填 API Key 时跳过 LLM 清洗，只做语音识别与断句。",
+      desc: "默认从 pi（~/.pi/agent）读取接口地址 / 密钥 / 模型，不会写入 config.toml；也可以改为手动配置。",
+      noteId: "llmSourceNote",
       fields: [
-        { path: "llm.base_url", label: "接口地址 Base URL", type: "text", placeholder: "https://api.openai.com/v1", wide: true },
-        { path: "llm.api_key", label: "API Key", type: "password", wide: true },
-        { path: "llm.model", label: "模型", type: "text", placeholder: "deepseek-v4-flash" },
+        {
+          path: "llm.source",
+          label: "模型来源",
+          type: "select",
+          wide: true,
+          options: [
+            { value: "pi", label: "从 pi 自动获取" },
+            { value: "manual", label: "手动配置" },
+          ],
+        },
+        { path: "llm.base_url", label: "接口地址 Base URL", type: "text", placeholder: "https://api.openai.com/v1", wide: true, llmManaged: true },
+        { path: "llm.api_key", label: "API Key", type: "password", wide: true, llmManaged: true },
+        { path: "llm.model", label: "模型", type: "text", placeholder: "deepseek-v4-flash", llmManaged: true },
         { path: "llm.concurrency", label: "并发请求数", type: "number", min: 1 },
         { path: "llm.max_tokens", label: "单次返回上限", type: "number", min: 1 },
         { path: "llm.timeout", label: "超时(秒)", type: "number", min: 1 },
@@ -290,7 +304,12 @@
     }
     if (field.type === "select") {
       const options = field.options
-        .map((opt) => `<option value="${opt}"${opt === current ? " selected" : ""}>${opt}</option>`)
+        .map((opt) => {
+          const value = typeof opt === "string" ? opt : opt.value;
+          const label = typeof opt === "string" ? opt : opt.label;
+          const selected = String(value) === String(current) ? " selected" : "";
+          return `<option value="${value}"${selected}>${label}</option>`;
+        })
         .join("");
       return `<label${classes}>${field.label}<select ${attrs}>${options}</select></label>`;
     }
@@ -309,7 +328,8 @@
         .map((field) => renderSettingField(field, getPath(configData, field.path)))
         .join("");
       const desc = section.desc ? `<p class="hint">${section.desc}</p>` : "";
-      return `<section class="settings-section"><h3>${section.title}</h3>${desc}<div class="settings-grid">${fields}</div></section>`;
+      const note = section.noteId ? `<p class="llm-source-note" id="${section.noteId}"></p>` : "";
+      return `<section class="settings-section"><h3>${section.title}</h3>${desc}${note}<div class="settings-grid">${fields}</div></section>`;
     }).join("");
     els.settingsModal.innerHTML = `
       <div class="modal-card settings-card">
@@ -329,10 +349,40 @@
   async function openSettings() {
     try {
       const data = await api("/api/settings");
+      state.llmResolved = (data.settings && data.settings.llm && data.settings.llm.resolved) || null;
       renderSettingsForm(data.settings, data.config_path);
       els.settingsModal.classList.remove("hidden");
+      const sourceEl = els.settingsModal.querySelector('[data-path="llm.source"]');
+      if (sourceEl) sourceEl.addEventListener("change", updateLlmSourceFields);
+      updateLlmSourceFields();
     } catch (err) {
       toast(err.message, "error");
+    }
+  }
+
+  function updateLlmSourceFields() {
+    const sourceEl = els.settingsModal.querySelector('[data-path="llm.source"]');
+    if (!sourceEl) return;
+    const fromPi = sourceEl.value === "pi";
+    els.settingsModal.querySelectorAll("[data-path^='llm.']").forEach((el) => {
+      if (["llm.base_url", "llm.api_key", "llm.model"].includes(el.dataset.path)) {
+        el.disabled = fromPi;
+      }
+    });
+    const note = els.settingsModal.querySelector("#llmSourceNote");
+    if (!note) return;
+    const resolved = state.llmResolved;
+    if (fromPi) {
+      if (resolved && resolved.model) {
+        const parts = [resolved.model];
+        if (resolved.base_url) parts.push(resolved.base_url);
+        parts.push(resolved.has_key ? "已找到密钥" : "未找到密钥，将跳过 LLM");
+        note.textContent = `当前从 pi 读取：${parts.join(" · ")}`;
+      } else {
+        note.textContent = "未从 pi 找到 LLM 配置，请改为手动配置。";
+      }
+    } else {
+      note.textContent = "手动填写的接口地址 / 密钥 / 模型会写入 config.toml。";
     }
   }
 
@@ -344,6 +394,7 @@
   async function saveSettings() {
     const data = {};
     els.settingsModal.querySelectorAll("[data-path]").forEach((el) => {
+      if (el.disabled) return;
       if (el.type === "number") {
         if (el.value === "") return;
         const num = Number(el.value);

@@ -63,6 +63,7 @@ def get_config() -> dict:
         "whisper_model": str(settings.whisper_model),
         "whisper_lang": settings.whisper_lang,
         "llm_enabled": settings.has_llm,
+        "llm_source": settings.llm_source,
         "llm_model": settings.llm_model if settings.has_llm else None,
         "llm_base_url": settings.llm_base_url if settings.has_llm else None,
         "default_max_chars": settings.default_max_chars,
@@ -92,10 +93,17 @@ def get_config() -> dict:
 @app.get("/api/settings")
 def get_settings() -> dict:
     path = config_path()
+    data = settings.to_dict()
+    # 来源为 pi 时 to_dict() 出于安全不写入凭据，这里额外返回实际生效值供界面展示
+    data["llm"]["resolved"] = {
+        "base_url": settings.llm_base_url,
+        "model": settings.llm_model,
+        "has_key": bool(settings.llm_api_key),
+    }
     return {
         "config_path": str(path),
         "config_exists": path.is_file(),
-        "settings": settings.to_dict(),
+        "settings": data,
     }
 
 

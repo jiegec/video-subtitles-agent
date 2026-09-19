@@ -2,9 +2,10 @@
 
 所有配置都放在这一个 TOML 文件里：
 
-- 首次启动：使用内置默认值；如果检测到 ``~/.pi`` 里的 OpenAI 兼容配置，会作为 LLM 默认值。
-- 之后：在网页右上角「设置」里修改，保存后写回 ``config.toml``。
-- 优先级：``config.toml`` > ``~/.pi/agent/*``（仅用于推断 LLM） > 代码内默认值。
+- 在网页右上角「设置」里修改，保存后写回 ``config.toml``，立即生效。
+- LLM 默认 ``source = "pi"``：base_url/api_key/model 从 ``~/.pi/agent/*`` 实时读取，不写入 ``config.toml``；
+  想自己指定就改成 ``source = "manual"``。
+- 优先级：``config.toml`` > ``~/.pi/agent/*``（仅当 source = "pi"） > 代码内默认值。
 
 也可以用文本编辑器直接改 ``config.toml``，重启服务即可生效。
 """
@@ -41,6 +42,7 @@ DEFAULT_CONFIG: dict = {
         "prompt": "以下是简体中文的语音内容。",
     },
     "llm": {
+        "source": "pi",
         "base_url": "https://api.openai.com/v1",
         "api_key": "",
         "model": "deepseek-v4-flash",
@@ -182,6 +184,56 @@ def _pi_defaults() -> dict:
     return result
 
 
+LLM_PI_MANAGED = ("base_url", "api_key", "model")
+
+
+def _detect_llm_source(file_config: dict) -> str:
+    """判断 LLM 使用 pi 还是手动配置。
+
+    - 显式写了 ``source`` 就用它；
+    - 老配置没有 ``source``：
+      * 填了 base_url/api_key/model，且它们与 pi 的值一致，说明只是把 pi 的配置拷贝了一份，
+        当作 ``pi``（下次保存会清掉这些拷贝）；
+      * 否则当作手动配置；
+    - 什么都没填（首次运行）则默认从 pi 获取。
+    """
+    llm = file_config.get("llm") if isinstance(file_config, dict) else None
+    if isinstance(llm, dict):
+        source = llm.get("source")
+        if source in ("pi", "manual"):
+            return source
+        filled = {key: str(llm.get(key) or "").strip() for key in LLM_PI_MANAGED}
+        if any(filled.values()):
+            pi_llm = _pi_defaults().get("llm", {})
+            same_as_pi = filled["api_key"] != "" and all(
+                not filled[key] or filled[key] == str(pi_llm.get(key) or "").strip()
+                for key in LLM_PI_MANAGED
+            )
+            return "pi" if same_as_pi else "manual"
+    return "pi"
+
+
+def _resolve_settings(file_config: dict, base_dir: Path) -> "Settings":
+    """按优先级合并配置：默认值 < pi（模型来源为 pi 时） < config.toml。
+
+    模型来源为 pi 时，base_url/api_key/model 一律从 pi 实时读取，
+    不读取也不保存 config.toml 里的这三个字段。
+    """
+    source = _detect_llm_source(file_config)
+    merged = _deep_merge(DEFAULT_CONFIG, {})
+    if source == "pi":
+        merged = _deep_merge(merged, _pi_defaults())
+
+    file_cfg = copy.deepcopy(file_config) if isinstance(file_config, dict) else {}
+    llm_file = file_cfg.get("llm")
+    if source == "pi" and isinstance(llm_file, dict):
+        for key in LLM_PI_MANAGED:
+            llm_file.pop(key, None)
+    merged = _deep_merge(merged, file_cfg)
+    merged.setdefault("llm", {})["source"] = source
+    return _settings_from_dict(merged, base_dir)
+
+
 # --------------------------------------------------------------------------- #
 # 路径 / 数值工具
 # --------------------------------------------------------------------------- #
@@ -240,6 +292,7 @@ class Settings:
     whisper_prompt: str
     ffmpeg_bin: str
 
+    llm_source: str
     llm_base_url: str
     llm_api_key: str
     llm_model: str
@@ -307,9 +360,10 @@ class Settings:
                 "prompt": self.whisper_prompt,
             },
             "llm": {
-                "base_url": self.llm_base_url,
-                "api_key": self.llm_api_key,
-                "model": self.llm_model,
+                "source": self.llm_source,
+                "base_url": "" if self.llm_source == "pi" else self.llm_base_url,
+                "api_key": "" if self.llm_source == "pi" else self.llm_api_key,
+                "model": "" if self.llm_source == "pi" else self.llm_model,
                 "concurrency": self.llm_concurrency,
                 "max_tokens": self.llm_max_tokens,
                 "timeout": self.llm_timeout,
@@ -345,8 +399,9 @@ class Settings:
 
     def updated_with(self, data: dict) -> "Settings":
         """用一份（可能不完整的）配置覆盖当前值，返回新的 Settings。"""
-        merged = _deep_merge(DEFAULT_CONFIG, _deep_merge(self.to_dict(), data))
-        return _settings_from_dict(merged, self.config_dir)
+        # self.to_dict() 已经是当前 config.toml 的内容，再叠加本次改动后重新解析
+        merged = _deep_merge(self.to_dict(), data)
+        return _resolve_settings(merged, self.config_dir)
 
     def copy_from(self, other: "Settings") -> None:
         """就地更新自身，使已有引用（library / jobs）也能拿到新配置。"""
@@ -383,6 +438,7 @@ def _settings_from_dict(data: dict, base_dir: Path) -> Settings:
         ),
         whisper_prompt=_as_str(whisper.get("prompt"), DEFAULT_CONFIG["whisper"]["prompt"]),
         ffmpeg_bin=_as_str(paths.get("ffmpeg_bin"), DEFAULT_CONFIG["paths"]["ffmpeg_bin"]),
+        llm_source=("manual" if llm.get("source") == "manual" else "pi"),
         llm_base_url=_as_str(llm.get("base_url"), DEFAULT_CONFIG["llm"]["base_url"]).rstrip("/"),
         llm_api_key=str(llm.get("api_key") or ""),
         llm_model=_as_str(llm.get("model"), DEFAULT_CONFIG["llm"]["model"]),
@@ -444,13 +500,9 @@ def _settings_from_dict(data: dict, base_dir: Path) -> Settings:
 # 载入 / 保存
 # --------------------------------------------------------------------------- #
 def load_settings() -> Settings:
-    """读取 config.toml（不存在则用默认值 + ~/.pi 推断值）。"""
+    """读取 config.toml；缺失的 LLM 项在来源为 pi 时从 ~/.pi 推断。"""
     path = config_path()
-    file_config = _read_toml(path)
-    # 优先级：内置默认值 < ~/.pi 推断 < config.toml
-    merged = _deep_merge(DEFAULT_CONFIG, _pi_defaults())
-    merged = _deep_merge(merged, file_config)
-    return _settings_from_dict(merged, path.parent)
+    return _resolve_settings(_read_toml(path), path.parent)
 
 
 def save_settings(settings: Settings) -> Path:

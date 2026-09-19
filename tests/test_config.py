@@ -28,7 +28,7 @@ def test_updated_with_merges_and_keeps_original(tmp_path):
     updated = settings.updated_with(
         {
             "paths": {"project_dir": "videos"},
-            "llm": {"api_key": "sk-test"},
+            "llm": {"source": "manual", "api_key": "sk-test"},
             "subtitles": {"max_chars": 22},
         }
     )
@@ -42,9 +42,102 @@ def test_updated_with_merges_and_keeps_original(tmp_path):
 
 def test_copy_from_updates_in_place(tmp_path):
     settings = config._settings_from_dict(config.DEFAULT_CONFIG, tmp_path)
-    updated = settings.updated_with({"llm": {"model": "another-model"}})
+    updated = settings.updated_with({"llm": {"source": "manual", "model": "another-model"}})
     settings.copy_from(updated)
     assert settings.llm_model == "another-model"
+
+
+def test_pi_source_reads_pi_and_does_not_persist(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        config,
+        "_pi_defaults",
+        lambda: {
+            "llm": {"base_url": "https://pi/v1", "api_key": "pi-key", "model": "pi-model"}
+        },
+    )
+    settings = config._resolve_settings({}, tmp_path)
+    assert settings.llm_source == "pi"
+    assert settings.llm_base_url == "https://pi/v1"
+    assert settings.llm_api_key == "pi-key"
+    assert settings.llm_model == "pi-model"
+
+    # pi 的凭据不应写回 config.toml
+    saved_llm = settings.to_dict()["llm"]
+    assert saved_llm["source"] == "pi"
+    assert saved_llm["base_url"] == ""
+    assert saved_llm["api_key"] == ""
+    assert saved_llm["model"] == ""
+
+    # 从 pi 切到手动：保存手动填写的值
+    manual = settings.updated_with(
+        {
+            "llm": {
+                "source": "manual",
+                "base_url": "https://mine/v1",
+                "api_key": "my-key",
+                "model": "my-model",
+            }
+        }
+    )
+    assert manual.llm_source == "manual"
+    assert manual.llm_api_key == "my-key"
+    assert manual.to_dict()["llm"]["api_key"] == "my-key"
+
+    # 再切回 pi：重新从 pi 取，且不保留手动值
+    back = manual.updated_with({"llm": {"source": "pi"}})
+    assert back.llm_source == "pi"
+    assert back.llm_api_key == "pi-key"
+    assert back.to_dict()["llm"]["api_key"] == ""
+
+
+def test_pi_source_ignores_stale_file_values(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        config, "_pi_defaults", lambda: {"llm": {"api_key": "pi-key", "model": "pi-model"}}
+    )
+    settings = config._resolve_settings(
+        {"llm": {"source": "pi", "api_key": "stale", "model": "stale"}}, tmp_path
+    )
+    assert settings.llm_api_key == "pi-key"
+    assert settings.llm_model == "pi-model"
+
+
+def test_legacy_file_without_source_is_manual(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "_pi_defaults", lambda: {})
+    settings = config._resolve_settings(
+        {"llm": {"api_key": "old-key", "model": "old-model"}}, tmp_path
+    )
+    assert settings.llm_source == "manual"
+    assert settings.llm_api_key == "old-key"
+    assert settings.llm_model == "old-model"
+
+
+def test_legacy_copy_of_pi_values_falls_back_to_pi(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        config,
+        "_pi_defaults",
+        lambda: {
+            "llm": {
+                "base_url": "https://pi/v1",
+                "api_key": "pi-key",
+                "model": "pi-model",
+            }
+        },
+    )
+    # 旧版本把 pi 的配置拷贝进了 config.toml（没有 source 字段）
+    settings = config._resolve_settings(
+        {
+            "llm": {
+                "base_url": "https://pi/v1",
+                "api_key": "pi-key",
+                "model": "pi-model",
+            }
+        },
+        tmp_path,
+    )
+    assert settings.llm_source == "pi"
+    assert settings.llm_api_key == "pi-key"
+    # 这些拷贝不应再写回文件
+    assert settings.to_dict()["llm"]["api_key"] == ""
 
 
 def test_save_then_load(tmp_path, monkeypatch):
@@ -57,7 +150,11 @@ def test_save_then_load(tmp_path, monkeypatch):
         settings.updated_with(
             {
                 "paths": {"project_dir": "videos"},
-                "llm": {"api_key": "sk-secret", "model": "my-model"},
+                "llm": {
+                    "source": "manual",
+                    "api_key": "sk-secret",
+                    "model": "my-model",
+                },
             }
         )
     )
