@@ -76,6 +76,8 @@
     trajectoryView: $("trajectoryView"),
     toast: $("toast"),
     diffModal: $("diffModal"),
+    settingsModal: $("settingsModal"),
+    btnSettings: $("btnSettings"),
   };
 
   // ---------------------------------------------------------------- 工具
@@ -191,6 +193,182 @@
     els.llmBadge.textContent = cfg.llm_enabled ? `LLM: ${cfg.llm_model}` : "LLM 未配置";
     els.llmBadge.className = "badge " + (cfg.llm_enabled ? "on" : "off");
     els.whisperBadge.textContent = `whisper: ${cfg.whisper_model.split("/").pop()}`;
+  }
+
+  // ---------------------------------------------------------------- 全局设置
+  const SETTINGS_SECTIONS = [
+    {
+      title: "路径与命令行",
+      desc: "相对路径都相对于 config.toml 所在目录。改完保存立即生效。",
+      fields: [
+        { path: "paths.project_dir", label: "视频目录", type: "text", placeholder: "project" },
+        { path: "paths.ffmpeg_bin", label: "ffmpeg 路径", type: "text", placeholder: "ffmpeg" },
+        { path: "paths.whisper_bin", label: "whisper 可执行文件", type: "text", placeholder: "whisper-cli" },
+        { path: "paths.whisper_model", label: "whisper 模型", type: "text", placeholder: "ggml-medium.bin" },
+      ],
+    },
+    {
+      title: "Whisper 转写",
+      fields: [
+        { path: "whisper.lang", label: "语言", type: "text", placeholder: "zh" },
+        { path: "whisper.threads", label: "线程数", type: "number", min: 1 },
+        { path: "whisper.prompt", label: "初始提示词", type: "textarea", wide: true },
+      ],
+    },
+    {
+      title: "LLM（OpenAI 兼容）",
+      desc: "不填 API Key 时跳过 LLM 清洗，只做语音识别与断句。",
+      fields: [
+        { path: "llm.base_url", label: "接口地址 Base URL", type: "text", placeholder: "https://api.openai.com/v1", wide: true },
+        { path: "llm.api_key", label: "API Key", type: "password", wide: true },
+        { path: "llm.model", label: "模型", type: "text", placeholder: "deepseek-v4-flash" },
+        { path: "llm.concurrency", label: "并发请求数", type: "number", min: 1 },
+        { path: "llm.max_tokens", label: "单次返回上限", type: "number", min: 1 },
+        { path: "llm.timeout", label: "超时(秒)", type: "number", min: 1 },
+        { path: "llm.thinking", label: "推理强度", type: "select", options: ["off", "low", "medium", "high", "auto"] },
+      ],
+    },
+    {
+      title: "字幕默认参数",
+      fields: [
+        { path: "subtitles.max_chars", label: "每句最多字数", type: "number", min: 6 },
+        { path: "subtitles.min_duration", label: "最短显示(秒)", type: "number", min: 0.3, step: 0.1 },
+        { path: "subtitles.block_chars", label: "LLM 分块字数", type: "number", min: 60 },
+      ],
+    },
+    {
+      title: "截图与参考资料",
+      fields: [
+        { path: "frames.interval", label: "截图间隔(秒)", type: "number", min: 5 },
+        { path: "frames.max_per_batch", label: "每批最多截图", type: "number", min: 0 },
+        { path: "frames.max_count", label: "单视频最多截图", type: "number", min: 1 },
+        { path: "context.max_chars", label: "资料注入上限(字)", type: "number", min: 1000 },
+      ],
+    },
+    {
+      title: "漏识别补齐",
+      fields: [
+        { path: "recover.model", label: "补转模型(留空同主模型)", type: "text" },
+        { path: "recover.noise_db", label: "静音噪声阈值(dB)", type: "number", step: 1 },
+        { path: "recover.min_silence", label: "判定静音时长(秒)", type: "number", step: 0.1 },
+        { path: "recover.min_gap", label: "最短缺口(秒)", type: "number", step: 0.1 },
+        { path: "recover.min_cps", label: "语速下限(字/秒)", type: "number", step: 0.1 },
+        { path: "recover.low_conf_threshold", label: "低置信阈值", type: "number", step: 0.05 },
+        { path: "recover.max_regions", label: "最多重转区间", type: "number", min: 1 },
+      ],
+    },
+    {
+      title: "历史版本",
+      fields: [
+        { path: "backup.keep", label: "最多保留版本", type: "number", min: 0 },
+        { path: "backup.interval", label: "备份最小间隔(秒)", type: "number", min: 0 },
+      ],
+    },
+  ];
+
+  function getPath(obj, path) {
+    return path.split(".").reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
+  }
+
+  function setPath(obj, path, value) {
+    const keys = path.split(".");
+    const last = keys.pop();
+    let cursor = obj;
+    for (const key of keys) {
+      if (typeof cursor[key] !== "object" || cursor[key] === null) cursor[key] = {};
+      cursor = cursor[key];
+    }
+    cursor[last] = value;
+  }
+
+  function renderSettingField(field, value) {
+    const current = value == null ? "" : value;
+    const classes = field.wide ? ' class="wide"' : "";
+    const attrs = `data-path="${field.path}"`;
+    if (field.type === "textarea") {
+      return `<label${classes}>${field.label}<textarea ${attrs} rows="2">${escapeHtml(current)}</textarea></label>`;
+    }
+    if (field.type === "select") {
+      const options = field.options
+        .map((opt) => `<option value="${opt}"${opt === current ? " selected" : ""}>${opt}</option>`)
+        .join("");
+      return `<label${classes}>${field.label}<select ${attrs}>${options}</select></label>`;
+    }
+    const min = field.min != null ? ` min="${field.min}"` : "";
+    const step = field.step != null ? ` step="${field.step}"` : "";
+    const placeholder = field.placeholder ? ` placeholder="${field.placeholder}"` : "";
+    if (field.type === "password") {
+      return `<label${classes}>${field.label}<span class="pw-wrap"><input type="password" ${attrs} value="${escapeHtml(current)}"${placeholder} /><button type="button" class="icon-btn" data-toggle-pw>显示</button></span></label>`;
+    }
+    return `<label${classes}>${field.label}<input type="${field.type}" ${attrs} value="${escapeHtml(current)}"${min}${step}${placeholder} /></label>`;
+  }
+
+  function renderSettingsForm(configData, configName) {
+    const sections = SETTINGS_SECTIONS.map((section) => {
+      const fields = section.fields
+        .map((field) => renderSettingField(field, getPath(configData, field.path)))
+        .join("");
+      const desc = section.desc ? `<p class="hint">${section.desc}</p>` : "";
+      return `<section class="settings-section"><h3>${section.title}</h3>${desc}<div class="settings-grid">${fields}</div></section>`;
+    }).join("");
+    els.settingsModal.innerHTML = `
+      <div class="modal-card settings-card">
+        <div class="modal-head"><strong>全局设置</strong><button class="icon-btn" data-act="close">✕</button></div>
+        <div class="modal-body">
+          <p class="hint">所有配置都保存在 <code>${escapeHtml(configName)}</code>，保存后立即生效。</p>
+          ${sections}
+        </div>
+        <div class="modal-foot">
+          <span class="save-status" id="settingsStatus"></span>
+          <button data-act="close">取消</button>
+          <button class="primary" data-act="save">保存设置</button>
+        </div>
+      </div>`;
+  }
+
+  async function openSettings() {
+    try {
+      const data = await api("/api/settings");
+      renderSettingsForm(data.settings, data.config_path);
+      els.settingsModal.classList.remove("hidden");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  function closeSettings() {
+    els.settingsModal.classList.add("hidden");
+    els.settingsModal.innerHTML = "";
+  }
+
+  async function saveSettings() {
+    const data = {};
+    els.settingsModal.querySelectorAll("[data-path]").forEach((el) => {
+      if (el.type === "number") {
+        if (el.value === "") return;
+        const num = Number(el.value);
+        if (Number.isNaN(num)) return;
+        setPath(data, el.dataset.path, num);
+      } else {
+        setPath(data, el.dataset.path, el.value);
+      }
+    });
+    const status = els.settingsModal.querySelector("#settingsStatus");
+    if (status) status.textContent = "保存中…";
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: data }),
+      });
+      toast("设置已保存", "ok");
+      closeSettings();
+      await loadConfig();
+      await loadVideos();
+    } catch (err) {
+      if (status) status.textContent = "";
+      toast(err.message, "error");
+    }
   }
 
   async function loadVideos() {
@@ -1237,6 +1415,24 @@
   // ---------------------------------------------------------------- 事件绑定
   els.refreshVideos.addEventListener("click", loadVideos);
   els.search.addEventListener("input", renderVideoList);
+  els.btnSettings.addEventListener("click", openSettings);
+  els.settingsModal.addEventListener("click", (event) => {
+    if (event.target === els.settingsModal) {
+      closeSettings();
+      return;
+    }
+    const toggle = event.target.closest("[data-toggle-pw]");
+    if (toggle) {
+      const input = toggle.parentElement.querySelector("input");
+      input.type = input.type === "password" ? "text" : "password";
+      toggle.textContent = input.type === "password" ? "显示" : "隐藏";
+      return;
+    }
+    const action = event.target.closest("[data-act]");
+    if (!action) return;
+    if (action.dataset.act === "close") closeSettings();
+    else if (action.dataset.act === "save") saveSettings();
+  });
   els.btnFull.addEventListener("click", startJob);
   els.btnHistory.addEventListener("click", toggleHistory);
   els.btnSaveConfig.addEventListener("click", saveVideoConfig);
@@ -1305,6 +1501,9 @@
     if (!typing && (event.key === "[" || event.key === "]")) {
       event.preventDefault();
       stepRate(event.key === "]" ? 1 : -1);
+    }
+    if (event.key === "Escape" && !els.settingsModal.classList.contains("hidden")) {
+      closeSettings();
     }
   });
 

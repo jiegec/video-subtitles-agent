@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from ..backup import backup_srt, backups_dir_for, list_backups
-from ..config import load_settings
+from ..config import config_path, load_settings, save_settings
 from ..context import build_reference, read_document
 from ..library import Library
 from ..llm import LLMClient
@@ -72,6 +72,7 @@ def get_config() -> dict:
         "frame_max_per_batch": settings.frame_max_per_batch,
         "context_max_chars": settings.context_max_chars,
         "config_suffix": CONFIG_SUFFIX,
+        "config_path": str(config_path()),
         "recover": {
             "noise_db": settings.recover_noise_db,
             "min_silence": settings.recover_min_silence,
@@ -83,6 +84,38 @@ def get_config() -> dict:
         },
         "valid_steps": list(VALID_STEPS),
     }
+
+
+# --------------------------------------------------------------------------- #
+# 全局配置（config.toml，网页「设置」里编辑）
+# --------------------------------------------------------------------------- #
+@app.get("/api/settings")
+def get_settings() -> dict:
+    path = config_path()
+    return {
+        "config_path": str(path),
+        "config_exists": path.is_file(),
+        "settings": settings.to_dict(),
+    }
+
+
+@app.put("/api/settings")
+def put_settings(payload: dict = Body(...)) -> dict:
+    data = payload.get("settings") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="配置格式无效")
+    try:
+        updated = settings.updated_with(data)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"配置无效：{exc}") from exc
+    try:
+        path = save_settings(updated)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"写入 config.toml 失败：{exc}") from exc
+    # 就地更新：library / jobs 持有同一个 Settings 引用，无需重建
+    settings.copy_from(updated)
+    library.clear_duration_cache()
+    return {"ok": True, "config_path": str(path), "settings": settings.to_dict()}
 
 
 # --------------------------------------------------------------------------- #

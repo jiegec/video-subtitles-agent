@@ -26,6 +26,7 @@ uv run subtitles-agent --port 9000
 
 打开网页后：
 
+0. 点右上角「⚙ 设置」填写 whisper / LLM / 字幕参数等（保存在 `config.toml`，保存立即生效）
 1. 左侧选择视频
 2. 「上下文与资料」标签里填写视频说明、术语表，添加参考资料（PDF / Word / Markdown / 文本 / 网页链接，或直接上传），也可以**从其他视频复用配置**或**导入一个现成的 JSON 配置**
 3. 「生成设置」里设置每句最大字数等参数
@@ -42,36 +43,62 @@ uv run subtitles-agent --port 9000
 
 ## 配置
 
-LLM 走任意 OpenAI 兼容接口。优先级：环境变量 > `.env` > `~/.pi/agent/*`（可复用 pi 的配置）> 默认值。
-可用 `.env.example` 作为模板：
+所有配置都放在**一个 `config.toml` 文件**里。
 
-```bash
-cp .env.example .env
+- 首次运行会自动使用默认值；如果检测到 `~/.pi/agent/*` 里的 OpenAI 兼容配置，会作为 LLM 默认值。
+- **推荐**：启动后点网页右上角的「⚙ 设置」，在弹出的表单里填写并保存，配置会立即写入 `config.toml` 并生效，无需重启。
+- 也可以直接用文本编辑器改 `config.toml`（相对路径都相对于本文件所在目录），然后重启服务。
+- 优先级：`config.toml` > `~/.pi/agent/*`（仅用于推断 LLM） > 内置默认值。
+
+`config.toml` 的结构如下（首次保存后自动生成）：
+
+```toml
+[paths]
+project_dir = "project"          # 视频目录
+ffmpeg_bin = "ffmpeg"
+whisper_bin = "whisper-cli"
+whisper_model = "ggml-medium.bin"
+
+[whisper]
+lang = "zh"
+threads = 5
+prompt = "以下是简体中文的语音内容。"
+
+[llm]                            # 任意 OpenAI 兼容接口，留空 api_key 则跳过 LLM
+base_url = "https://api.openai.com/v1"
+api_key = ""
+model = "deepseek-v4-flash"
+concurrency = 4
+max_tokens = 16384
+timeout = 180.0
+thinking = "off"               # off / low / medium / high / auto
+
+[subtitles]
+max_chars = 18
+min_duration = 0.8
+block_chars = 220
+
+[frames]
+interval = 45
+max_per_batch = 4
+max_count = 240
+
+[context]
+max_chars = 12000
+
+[recover]
+model = ""                     # 补转用模型，留空同 whisper_model
+noise_db = -30.0
+min_silence = 0.4
+min_gap = 1.5
+min_cps = 1.8
+low_conf_threshold = 0.45
+max_regions = 80
+
+[backup]
+keep = 100
+interval = 120.0
 ```
-
-| 变量 | 说明 | 默认 |
-| --- | --- | --- |
-| `PROJECT_DIR` | 视频目录 | `./project` |
-| `WHISPER_BIN` / `WHISPER_MODEL` | whisper 可执行文件与模型 | `whisper-cli` / `./ggml-medium.bin` |
-| `WHISPER_LANG` / `WHISPER_THREADS` | 语言与线程数 | `zh` / CPU 一半 |
-| `WHISPER_PROMPT` | whisper 初始提示词（可用于指定简体中文、专有名词） | `以下是简体中文的语音内容。` |
-| `FFMPEG_BIN` | ffmpeg 路径 | `ffmpeg` |
-| `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | OpenAI 兼容接口 | 从 `~/.pi` 推断 |
-| `LLM_CONCURRENCY` | 并发请求数 | `4` |
-| `LLM_MAX_TOKENS` | 单次返回上限 | `16384` |
-| `LLM_TIMEOUT` | 单次请求超时（秒） | `180` |
-| `LLM_THINKING` | 推理强度 `off/low/medium/high/auto` | `off` |
-| `SUBTITLES_MAX_CHARS` / `SUBTITLES_MIN_DURATION` | 每句最大字数 / 最短显示 | `18` / `0.8` |
-| `LLM_BLOCK_CHARS` | 每次交给 LLM 的分块字数 | `220` |
-| `FRAME_INTERVAL` | 截图间隔（秒） | `45` |
-| `FRAME_MAX_PER_BATCH` | 每个 LLM 请求最多附几张截图 | `4` |
-| `FRAME_MAX_COUNT` | 单个视频最多保留多少张截图（过长会自动拉大间隔） | `240` |
-| `CONTEXT_MAX_CHARS` | 资料注入上限（超出自动摘要） | `12000` |
-| `RECOVER_MIN_GAP` / `RECOVER_MIN_CPS` / `RECOVER_LOW_CONF_THRESHOLD` | 补齐漏识别的三类阈值 | `1.5` / `1.8` / `0.45` |
-| `RECOVER_MAX_REGIONS` | 单次最多重转多少个可疑区间 | `80` |
-| `RECOVER_MODEL` | 补转用的模型（不填则同 `WHISPER_MODEL`） | 空 |
-| `SRT_BACKUP_KEEP` | 保留多少个 SRT 历史版本 | `100` |
-| `SRT_BACKUP_INTERVAL` | 自动保存时两次备份的最小间隔（秒） | `120` |
 
 ## per-video 配置（JSON）
 
@@ -184,7 +211,7 @@ CI（GitHub Actions）在 Python 3.11 / 3.12 / 3.13 上跑 lint、单元测试�
 
 ```
 src/subtitles_agent/
-  config.py          # 配置加载
+  config.py          # 全局配置（读写 config.toml）
   video_config.py    # per-video JSON 工程配置
   context.py         # 参考资料读取 / 摘要
   frames.py          # 视频截图

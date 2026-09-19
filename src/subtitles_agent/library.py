@@ -33,6 +33,10 @@ class Library:
             self._duration_cache[key] = value
         return value
 
+    def clear_duration_cache(self) -> None:
+        with self._lock:
+            self._duration_cache.clear()
+
     def resolve(self, rel_path: str) -> Path:
         """把相对路径解析成 project 目录内的路径，并阻止越权访问。
 
