@@ -77,6 +77,14 @@ def test_segments_from_status_missing_detail_raises():
         tencent_asr.segments_from_status(status)
 
 
+def test_is_auth_error():
+    assert tencent_asr._is_auth_error("AuthFailure.SignatureFailure")
+    assert tencent_asr._is_auth_error("AuthFailure.SecretIdNotFound")
+    assert tencent_asr._is_auth_error("UnauthorizedOperation")
+    assert not tencent_asr._is_auth_error("InvalidParameter")
+    assert not tencent_asr._is_auth_error("")
+
+
 def test_run_asr_dispatches_to_tencent(tmp_path, monkeypatch):
     from subtitles_agent import transcribe as transcribe_mod
 

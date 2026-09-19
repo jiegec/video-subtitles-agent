@@ -231,6 +231,40 @@ def _submit_and_wait(settings: Settings, models, client, audio: bytes, hotwords:
 # --------------------------------------------------------------------------- #
 # 对外入口
 # --------------------------------------------------------------------------- #
+_AUTH_ERROR_CODES = {"UnauthorizedOperation"}
+
+
+def _is_auth_error(code: str) -> bool:
+    code = code or ""
+    return code.startswith("AuthFailure") or code in _AUTH_ERROR_CODES
+
+
+def test_credentials(settings: Settings) -> dict:
+    """用一次不存在的任务查询验证腾讯云密钥 / 地域是否可用。
+
+    ``DescribeTaskStatus`` 对不存在的 TaskId 会返回业务错误；只要不是鉴权类错误，
+    就说明请求已经通过签名与权限校验。这样可以避免为了测试而真正创建识别任务。
+    """
+    credential, asr_client, models, sdk_error = _sdk()
+    if not settings.tencent_secret_id or not settings.tencent_secret_key:
+        raise RuntimeError("未配置腾讯云 SecretId / SecretKey")
+    cred = credential.Credential(settings.tencent_secret_id, settings.tencent_secret_key)
+    client = asr_client.AsrClient(cred, settings.tencent_region)
+    request = models.DescribeTaskStatusRequest()
+    request.TaskId = 1
+    try:
+        client.DescribeTaskStatus(request)
+    except sdk_error as exc:
+        code = str(getattr(exc, "code", "") or "")
+        if _is_auth_error(code):
+            raise RuntimeError(f"密钥无效或没有语音识别权限：{exc}") from exc
+        return {
+            "ok": True,
+            "message": f"密钥有效（{settings.tencent_region}，服务返回 {code or '业务错误'}）",
+        }
+    return {"ok": True, "message": f"密钥有效（{settings.tencent_region}）"}
+
+
 def transcribe(
     settings: Settings,
     wav: Path,

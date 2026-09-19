@@ -237,6 +237,7 @@
         { path: "tencent.engine", label: "引擎模型", type: "text", placeholder: "16k_zh", group: "tencent" },
         { path: "tencent.chunk_seconds", label: "分段秒数(每段<5MB)", type: "number", min: 60, max: 1200, group: "tencent" },
       ],
+      footer: '<span id="asrTestWrap"><button type="button" id="asrTestBtn">测试密钥</button><span id="asrTestResult" class="test-result"></span></span>',
     },
     {
       title: "LLM（OpenAI 兼容）",
@@ -382,6 +383,8 @@
       if (asrEl) asrEl.addEventListener("change", updateAsrFields);
       const testBtn = els.settingsModal.querySelector("#llmTestBtn");
       if (testBtn) testBtn.addEventListener("click", testLlm);
+      const asrTestBtn = els.settingsModal.querySelector("#asrTestBtn");
+      if (asrTestBtn) asrTestBtn.addEventListener("click", testAsr);
       updateLlmSourceFields();
       updateAsrFields();
     } catch (err) {
@@ -428,6 +431,8 @@
       backend === "tencent"
         ? "腾讯云按量计费；音频会自动分片上传（每段 < 5MB），需填好 SecretId / SecretKey。首次使用需安装：uv sync --extra tencent。"
         : "本地识别，需要安装 whisper-cli 并准备好模型文件。";
+    const testWrap = els.settingsModal.querySelector("#asrTestWrap");
+    if (testWrap) testWrap.classList.toggle("hidden", backend !== "tencent");
   }
 
   function collectSettingsForm() {
@@ -462,6 +467,32 @@
       });
       output.className = "test-result ok";
       output.textContent = `✓ ${data.model} · ${data.elapsed}s · 回复：${data.reply || "(空)"}`;
+    } catch (err) {
+      output.className = "test-result error";
+      output.textContent = `✗ ${err.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function testAsr() {
+    const button = els.settingsModal.querySelector("#asrTestBtn");
+    const output = els.settingsModal.querySelector("#asrTestResult");
+    if (!button || !output) return;
+    button.disabled = true;
+    output.className = "test-result";
+    output.textContent = "测试中…";
+    try {
+      const form = collectSettingsForm();
+      const data = await api("/api/asr/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: { asr: form.asr || {}, tencent: form.tencent || {} },
+        }),
+      });
+      output.className = "test-result ok";
+      output.textContent = `✓ ${data.message || "密钥有效"}`;
     } catch (err) {
       output.className = "test-result error";
       output.textContent = `✗ ${err.message}`;

@@ -153,6 +153,26 @@ def test_llm(payload: dict = Body(default=None)) -> dict:
     }
 
 
+@app.post("/api/asr/test")
+def test_asr(payload: dict = Body(default=None)) -> dict:
+    """验证腾讯云 ASR 密钥 / 地域是否可用（不会真正创建识别任务）。"""
+    data = payload.get("settings") if isinstance(payload, dict) else None
+    try:
+        target = settings.updated_with(data) if isinstance(data, dict) else settings
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"配置无效：{exc}") from exc
+    if target.asr_backend != "tencent":
+        raise HTTPException(status_code=400, detail="当前语音识别后端不是腾讯云")
+    try:
+        from ..tencent_asr import test_credentials
+    except ImportError as exc:  # pragma: no cover
+        raise HTTPException(status_code=400, detail=f"腾讯云后端不可用：{exc}") from exc
+    try:
+        return test_credentials(target)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 # --------------------------------------------------------------------------- #
 # per-video 配置（背景说明 / 术语表 / 参考资料）
 # --------------------------------------------------------------------------- #
