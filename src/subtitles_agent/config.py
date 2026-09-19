@@ -48,7 +48,7 @@ DEFAULT_CONFIG: dict = {
         "secret_id": "",
         "secret_key": "",
         "region": "ap-shanghai",
-        "engine": "16k_zh",
+        "engine": "16k_zh_en_2.0",
         "chunk_seconds": 600,
     },
     "llm": {

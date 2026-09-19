@@ -74,7 +74,7 @@ backend = "whisper"             # whisper | tencent
 secret_id = ""
 secret_key = ""
 region = "ap-shanghai"
-engine = "16k_zh"
+engine = "16k_zh_en_2.0"
 chunk_seconds = 600              # 每段秒数，保证单段 < 5MB（base64 上传限制）
 
 [llm]

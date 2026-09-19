@@ -234,7 +234,7 @@
         { path: "tencent.secret_id", label: "腾讯云 SecretId", type: "text", wide: true, group: "tencent" },
         { path: "tencent.secret_key", label: "腾讯云 SecretKey", type: "password", wide: true, group: "tencent" },
         { path: "tencent.region", label: "地域", type: "text", placeholder: "ap-shanghai", group: "tencent" },
-        { path: "tencent.engine", label: "引擎模型", type: "text", placeholder: "16k_zh", group: "tencent" },
+        { path: "tencent.engine", label: "引擎模型", type: "text", placeholder: "16k_zh_en_2.0", group: "tencent" },
         { path: "tencent.chunk_seconds", label: "分段秒数(每段<5MB)", type: "number", min: 60, max: 1200, group: "tencent" },
       ],
       footer: '<span id="asrTestWrap"><button type="button" id="asrTestBtn">测试密钥</button><span id="asrTestResult" class="test-result"></span></span>',
