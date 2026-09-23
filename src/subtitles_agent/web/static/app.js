@@ -1600,7 +1600,8 @@
   }
 
   function tick() {
-    if (state.cues.length) updateActiveCue(videoTime());
+    // 只在播放时每帧刷新，暂停时交给 timeupdate/seeked 事件，避免空闲时白跑
+    if (state.cues.length && !els.player.paused) updateActiveCue(videoTime());
     requestAnimationFrame(tick);
   }
 
@@ -1667,6 +1668,13 @@
   els.playbackRate.addEventListener("change", () => setRate(els.playbackRate.value, true));
   els.player.addEventListener("loadedmetadata", () => {
     els.player.playbackRate = Number(els.playbackRate.value) || 1;
+    updateActiveCue(videoTime(), true);
+  });
+  els.player.addEventListener("timeupdate", () => {
+    if (state.cues.length) updateActiveCue(videoTime());
+  });
+  els.player.addEventListener("seeked", () => {
+    if (state.cues.length) updateActiveCue(videoTime(), true);
   });
   try {
     const savedRate = parseFloat(localStorage.getItem("subtitlesPlaybackRate") || "1");
