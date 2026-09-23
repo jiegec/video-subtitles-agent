@@ -20,6 +20,7 @@
     saveTimer: null,
     preGenHadSrt: false,
     llmResolved: null,
+    overlayText: "",
   };
 
   const els = {
@@ -629,19 +630,25 @@
   }
 
   function renderCues() {
-    els.cueList.innerHTML = "";
     els.cueCount.textContent = `（${state.cues.length} 条）`;
-    const fragment = document.createDocumentFragment();
-    state.cues.forEach((cue, index) => fragment.appendChild(renderRow(cue, index)));
-    els.cueList.appendChild(fragment);
+    // 一次拼好整段 HTML 交给浏览器解析，比逐行 createElement 快很多
+    els.cueList.innerHTML = state.cues.map(rowHtml).join("");
+    autoGrowAllCues();
     updateActiveCue(videoTime(), true);
   }
 
-  function renderRow(cue, index) {
-    const row = document.createElement("div");
-    row.className = "cue-row";
-    row.dataset.index = index;
-    row.innerHTML = `
+  // 批量自适应高度：先统一读取 scrollHeight，再统一写入，避免逐行触发重排（大文件会卡死）
+  function autoGrowAllCues() {
+    const areas = els.cueList.querySelectorAll('textarea[data-field="text"]');
+    const heights = new Array(areas.length);
+    for (let i = 0; i < areas.length; i++) heights[i] = areas[i].scrollHeight;
+    for (let i = 0; i < areas.length; i++) {
+      areas[i].style.height = Math.max(34, heights[i]) + "px";
+    }
+  }
+
+  function rowHtml(cue, index) {
+    return `<div class="cue-row" data-index="${index}">
       <div class="idx">${index + 1}</div>
       <input class="time" data-field="start" value="${formatTime(cue.start)}" />
       <input class="time" data-field="end" value="${formatTime(cue.end)}" />
@@ -652,10 +659,8 @@
         <button data-action="split" title="按光标拆分">✂</button>
         <button data-action="merge" title="与上一句合并">⇧</button>
         <button data-action="delete" class="danger" title="删除">🗑</button>
-      </div>`;
-    const textarea = row.querySelector("textarea");
-    requestAnimationFrame(() => autoGrow(textarea));
-    return row;
+      </div>
+    </div>`;
   }
 
   function videoTime() {
@@ -667,9 +672,14 @@
     if (index === -1 && state.cues.length && time >= state.cues[state.cues.length - 1].end) {
       index = state.cues.length - 1;
     }
-    els.overlay.innerHTML = index >= 0 ? `<span>${escapeHtml(state.cues[index].text)}</span>` : "";
-    if (index === state.activeIndex && !force) return;
+    const text = index >= 0 ? state.cues[index].text : "";
+    // 每帧都会调用：内容没变就直接返回，避免无谓的 DOM 写入
+    if (!force && index === state.activeIndex && text === state.overlayText) return;
+    const indexChanged = index !== state.activeIndex || force;
     state.activeIndex = index;
+    state.overlayText = text;
+    els.overlay.innerHTML = index >= 0 ? `<span>${escapeHtml(text)}</span>` : "";
+    if (!indexChanged) return;
     const rows = els.cueList.querySelectorAll(".cue-row");
     rows.forEach((row, i) => row.classList.toggle("active", i === index));
     if (index >= 0 && els.followPlay.checked) {
@@ -1184,8 +1194,9 @@
       </details>`;
     }
 
-    const blocksHtml = (data.blocks || [])
-      .map((block) => {
+    const allBlocks = data.blocks || [];
+    const renderBlocks = (list) =>
+      list.map((block) => {
         const del = (block.diff || [])
           .filter((o) => o.op === "delete" || o.op === "replace")
           .reduce((n, o) => n + (o.a || "").length, 0);
@@ -1233,12 +1244,37 @@
       })
       .join("");
 
+    // 文本块可能上千个，一次性渲染会卡死浏览器：每次只渲染 BLOCK_LIMIT 个，点按钮再渲染下一批
+    const BLOCK_LIMIT = 200;
+    const renderChunk = (start) => renderBlocks(allBlocks.slice(start, start + BLOCK_LIMIT));
+    let rendered = 0;
+
     els.trajectoryView.innerHTML = `
       <div class="trace-summary">${chips.map((c) => `<span class="chip">${c}</span>`).join("")}</div>
       ${llmCard}
       ${contextCard}
       ${recoveryCard}
-      ${blocksHtml || '<div class="trace-empty">没有文本块</div>'}`;
+      ${allBlocks.length ? renderChunk(0) : '<div class="trace-empty">没有文本块</div>'}
+      <div class="trace-empty" id="traceMoreWrap"></div>`;
+    rendered = Math.min(BLOCK_LIMIT, allBlocks.length);
+
+    const refreshMore = () => {
+      const wrap = els.trajectoryView.querySelector("#traceMoreWrap");
+      if (!wrap) return;
+      if (rendered >= allBlocks.length) {
+        wrap.innerHTML = "";
+        return;
+      }
+      wrap.innerHTML = `<button id="traceMoreBtn">显示其余 ${allBlocks.length - rendered} 个文本块</button>`;
+      wrap.querySelector("#traceMoreBtn").addEventListener("click", () => {
+        const container = document.createElement("div");
+        container.innerHTML = renderChunk(rendered);
+        rendered += BLOCK_LIMIT;
+        wrap.parentElement.insertBefore(container, wrap);
+        refreshMore();
+      });
+    };
+    refreshMore();
   }
 
   // ---------------------------------------------------------------- 上下文 / 资料
