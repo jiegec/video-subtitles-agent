@@ -151,6 +151,30 @@ class LLMClient:
     ) -> ChatResult:
         return self._request(self._payload(user_content, max_tokens, temperature))
 
+    def complete(
+        self,
+        user_content,
+        system_prompt: str = "",
+        max_tokens: int | None = None,
+        temperature: float = 0.2,
+    ) -> ChatResult:
+        """通用补全：可自定义 system prompt，不套用字幕清洗的默认提示词。"""
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_content})
+        payload = {
+            "model": self.settings.llm_model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens or self.settings.llm_max_tokens,
+        }
+        thinking = (self.settings.llm_thinking or "auto").lower()
+        effort = {"off": "none", "low": "low", "medium": "medium", "high": "high"}.get(thinking)
+        if effort:
+            payload["reasoning_effort"] = effort
+        return self._request(payload)
+
     def test_connection(self) -> ChatResult:
         """最小请求，用于在设置里验证接口地址 / 密钥 / 模型是否可用。"""
         payload = {

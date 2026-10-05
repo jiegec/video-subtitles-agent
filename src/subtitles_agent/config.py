@@ -87,6 +87,11 @@ DEFAULT_CONFIG: dict = {
         "keep": 100,
         "interval": 120.0,
     },
+    "chapters": {
+        "max_count": 10,
+        "max_title_chars": 16,
+        "input_chars": 24000,
+    },
 }
 
 CONFIG_HEADER = """# 视频字幕 Agent 配置
@@ -338,6 +343,10 @@ class Settings:
     srt_backup_keep: int
     srt_backup_interval: float
 
+    chapters_max_count: int
+    chapters_max_title_chars: int
+    chapters_input_chars: int
+
     config_dir: Path
 
     # ---- 派生属性 ----
@@ -359,6 +368,7 @@ class Settings:
             "trajectory": video.parent / (video.stem + ".trajectory.json"),
             "gaps": video.parent / (video.stem + ".gaps.json"),
             "backups_dir": video.parent / (video.stem + ".backups"),
+            "chapters": video.parent / (video.stem + ".chapters.txt"),
             "config": video.parent / (video.stem + CONFIG_SUFFIX),
         }
 
@@ -424,6 +434,11 @@ class Settings:
                 "keep": self.srt_backup_keep,
                 "interval": self.srt_backup_interval,
             },
+            "chapters": {
+                "max_count": self.chapters_max_count,
+                "max_title_chars": self.chapters_max_title_chars,
+                "input_chars": self.chapters_input_chars,
+            },
         }
 
     def updated_with(self, data: dict) -> "Settings":
@@ -449,6 +464,7 @@ def _settings_from_dict(data: dict, base_dir: Path) -> Settings:
     context = _table(data, "context")
     recover = _table(data, "recover")
     backup = _table(data, "backup")
+    chapters = _table(data, "chapters")
 
     project_dir = _resolve_path(
         _as_str(paths.get("project_dir"), DEFAULT_CONFIG["paths"]["project_dir"]), base_dir
@@ -540,6 +556,20 @@ def _settings_from_dict(data: dict, base_dir: Path) -> Settings:
         ),
         srt_backup_interval=max(
             0.0, _as_float(backup.get("interval"), DEFAULT_CONFIG["backup"]["interval"])
+        ),
+        chapters_max_count=max(
+            1, _as_int(chapters.get("max_count"), DEFAULT_CONFIG["chapters"]["max_count"])
+        ),
+        chapters_max_title_chars=max(
+            1,
+            _as_int(
+                chapters.get("max_title_chars"),
+                DEFAULT_CONFIG["chapters"]["max_title_chars"],
+            ),
+        ),
+        chapters_input_chars=max(
+            2000,
+            _as_int(chapters.get("input_chars"), DEFAULT_CONFIG["chapters"]["input_chars"]),
         ),
         config_dir=base_dir,
     )

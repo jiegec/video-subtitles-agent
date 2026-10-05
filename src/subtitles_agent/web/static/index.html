@@ -91,6 +91,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="generate">生成设置</button>
         <button class="tab" data-tab="context">上下文与资料</button>
+        <button class="tab" data-tab="chapters">章节</button>
       </div>
 
       <div class="tab-panel" id="tab-generate">
@@ -173,6 +174,20 @@
           <button class="danger" id="btnClearCache">清除摘要缓存</button>
         </div>
         <pre id="ctxPreview" class="ctx-preview hidden"></pre>
+      </div>
+
+      <div class="tab-panel hidden" id="tab-chapters">
+        <p class="hint">
+          在<strong>最终字幕</strong>的基础上生成章节列表（最多 10 条，首条从 <code>00:00:00</code> 开始，标题不超过 16 个汉字），
+          保存为视频旁边的 <code>&lt;视频名&gt;.chapters.txt</code>。
+        </p>
+        <div class="actions">
+          <button class="primary wide" id="btnGenChapters" disabled>生成章节列表</button>
+          <button id="btnCopyChapters" disabled>复制</button>
+          <button id="btnDownloadChapters" disabled>下载</button>
+        </div>
+        <div class="muted" id="chaptersFile" style="font-size:11px;margin:8px 0 4px"></div>
+        <pre id="chapterList" class="chapter-list">尚未生成</pre>
       </div>
     </aside>
   </div>

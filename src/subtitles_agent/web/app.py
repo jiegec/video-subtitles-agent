@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from ..backup import backup_srt, backups_dir_for, list_backups
+from ..chapters import generate_chapters, load_chapters, render_chapters, save_chapters
 from ..config import config_path, load_settings, save_settings
 from ..context import build_reference, read_document
 from ..library import Library
@@ -536,6 +537,73 @@ def subtitles_merge(payload: dict = Body(...)) -> dict:
     tmp.write_text(cues_to_srt(merged), encoding="utf-8")
     tmp.replace(srt)
     return {"ok": True, "count": len(merged), "srt_name": srt.name}
+
+
+# --------------------------------------------------------------------------- #
+# 章节列表（在最终字幕基础上单独生成，不并入全流程）
+# --------------------------------------------------------------------------- #
+@app.get("/api/chapters")
+def get_chapters(path: str = Query(...)) -> dict:
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    chapters_path = settings.artifact_paths(path)["chapters"]
+    chapters = load_chapters(chapters_path)
+    return {
+        "exists": chapters_path.is_file(),
+        "file_name": chapters_path.name,
+        "chapters": chapters,
+        "text": render_chapters(chapters),
+    }
+
+
+@app.post("/api/chapters")
+def create_chapters(payload: dict = Body(...)) -> dict:
+    path = payload.get("path")
+    if not path:
+        raise HTTPException(status_code=400, detail="缺少 path")
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    artifacts = settings.artifact_paths(path)
+    srt = artifacts["srt"]
+    if not srt.is_file():
+        raise HTTPException(status_code=404, detail="请先生成并确认字幕")
+    if not settings.has_llm:
+        raise HTTPException(status_code=400, detail="未配置 LLM，无法生成章节")
+    cues = parse_srt(srt.read_text(encoding="utf-8"))
+    if not cues:
+        raise HTTPException(status_code=400, detail="字幕为空，无法生成章节")
+    try:
+        chapters, meta = generate_chapters(settings, cues)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_chapters(artifacts["chapters"], chapters)
+    return {
+        "ok": True,
+        "file_name": artifacts["chapters"].name,
+        "chapters": chapters,
+        "text": render_chapters(chapters),
+        "meta": meta,
+    }
+
+
+@app.get("/api/chapters/download")
+def download_chapters(path: str = Query(...)) -> FileResponse:
+    try:
+        library.resolve(path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    chapters_path = settings.artifact_paths(path)["chapters"]
+    if not chapters_path.is_file():
+        raise HTTPException(status_code=404, detail="章节文件不存在")
+    return FileResponse(
+        chapters_path,
+        media_type="text/plain; charset=utf-8",
+        filename=chapters_path.name,
+    )
 
 
 # --------------------------------------------------------------------------- #

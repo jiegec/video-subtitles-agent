@@ -66,6 +66,11 @@
     btnPreviewCtx: $("btnPreviewCtx"),
     btnClearCache: $("btnClearCache"),
     ctxPreview: $("ctxPreview"),
+    chapterList: $("chapterList"),
+    chaptersFile: $("chaptersFile"),
+    btnGenChapters: $("btnGenChapters"),
+    btnCopyChapters: $("btnCopyChapters"),
+    btnDownloadChapters: $("btnDownloadChapters"),
     progressBox: $("progressBox"),
     progressFill: $("progressFill"),
     progressMsg: $("progressMsg"),
@@ -128,6 +133,14 @@
     else s = Number(parts[0]);
     if ([h, m, s].some((n) => Number.isNaN(n))) return null;
     return h * 3600 + m * 60 + s;
+  }
+
+  function formatClock(sec) {
+    sec = Math.max(0, Math.floor(Number(sec) || 0));
+    const h = String(Math.floor(sec / 3600)).padStart(2, "0");
+    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, "0");
+    const s = String(sec % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
   }
 
   function formatDuration(sec) {
@@ -574,7 +587,7 @@
     els.emptyHint.classList.add("hidden");
     els.player.src = `/api/media?path=${encodeURIComponent(path)}`;
     renderVideoList();
-    await Promise.all([refreshStatus(), loadCues(), loadVideoConfig(), loadReusableConfigs()]);
+    await Promise.all([refreshStatus(), loadCues(), loadVideoConfig(), loadReusableConfigs(), loadChapters()]);
     if (state.view === "trajectory") loadTrajectory();
     await resumeJob();
   }
@@ -625,6 +638,7 @@
     els.backupPanel.classList.add("hidden");
     renderCues();
     els.btnDownload.disabled = !data.exists;
+    els.btnGenChapters.disabled = !data.exists;
     els.currentName.textContent = data.video_name;
     if (!data.exists) toast("暂无字幕，请先运行生成流程");
   }
@@ -807,6 +821,52 @@
     } catch (err) {
       setSaveStatus("保存失败");
       toast("保存失败：" + err.message, "error");
+    }
+  }
+
+  // ---------------------------------------------------------------- 章节列表
+  async function loadChapters() {
+    if (!state.current) return;
+    try {
+      const data = await api(`/api/chapters?path=${encodeURIComponent(state.current.path)}`);
+      renderChapters(data);
+    } catch (_) {
+      /* 忽略 */
+    }
+  }
+
+  function renderChapters(data) {
+    const chapters = (data && data.chapters) || [];
+    if (chapters.length) {
+      els.chapterList.textContent = chapters
+        .map((c) => `${formatClock(c.start)} ${c.title}`)
+        .join("\n");
+    } else {
+      els.chapterList.textContent = data && data.exists ? "（文件为空）" : "尚未生成";
+    }
+    els.chaptersFile.textContent = data && data.file_name ? data.file_name : "";
+    els.btnCopyChapters.disabled = !chapters.length;
+    els.btnDownloadChapters.disabled = !chapters.length;
+  }
+
+  async function generateChapters() {
+    if (!state.current) return toast("请先选择视频", "error");
+    const label = els.btnGenChapters.textContent;
+    els.btnGenChapters.disabled = true;
+    els.btnGenChapters.textContent = "生成中…";
+    try {
+      const data = await api("/api/chapters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: state.current.path }),
+      });
+      renderChapters(data);
+      toast(`已生成 ${data.chapters.length} 个章节 → ${data.file_name}`, "ok");
+    } catch (err) {
+      toast("生成章节失败：" + err.message, "error");
+    } finally {
+      els.btnGenChapters.textContent = label;
+      els.btnGenChapters.disabled = !(state.current && state.current.has_srt);
     }
   }
 
@@ -1633,6 +1693,22 @@
   els.btnClearCache.addEventListener("click", clearContextCache);
   els.btnReuse.addEventListener("click", reuseConfig);
   els.btnExportConfig.addEventListener("click", exportConfig);
+  els.btnGenChapters.addEventListener("click", generateChapters);
+  els.btnCopyChapters.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(els.chapterList.textContent);
+      toast("章节已复制", "ok");
+    } catch (_) {
+      toast("复制失败，请手动选择", "error");
+    }
+  });
+  els.btnDownloadChapters.addEventListener("click", () => {
+    if (state.current) {
+      window.location.href = `/api/chapters/download?path=${encodeURIComponent(
+        state.current.path
+      )}`;
+    }
+  });
   els.configFile.addEventListener("change", () => {
     if (els.configFile.files[0]) importConfigFile(els.configFile.files[0]);
     els.configFile.value = "";
