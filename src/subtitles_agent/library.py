@@ -38,9 +38,9 @@ class Library:
             self._duration_cache.clear()
 
     def resolve(self, rel_path: str) -> Path:
-        """把相对路径解析成 project 目录内的路径，并阻止越权访问。
+        """把相对路径解析成 project 目录内的路径，越界路径抛出 PermissionError。
 
-        注意：不解析最后一级的符号链接（视频常常是软链），只在字面路径上做越界检查。
+        注意：越界检查基于字面路径，最后一层符号链接按原样保留（视频常用软链）。
         """
         root = Path(os.path.abspath(str(self.settings.project_dir)))
         candidate = Path(rel_path)

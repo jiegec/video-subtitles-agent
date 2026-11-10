@@ -5,7 +5,7 @@
     00:00:00 开场介绍
     00:05:12 基本概念
 
-约束：最多 ``max_count`` 条、标题不超过 ``max_title_chars`` 个字符、第一条从 00:00:00 开始。
+约束：章节数上限 ``max_count``、标题长度上限 ``max_title_chars`` 个字符、第一条从 00:00:00 开始。
 章节时间会吸附到最接近的字幕句子起点，保证与字幕对齐。
 """
 
@@ -75,7 +75,7 @@ def _parse_lines(text: str, max_title_chars: int = 999) -> list[dict]:
 
 
 def parse_chapters_text(text: str, max_title_chars: int = 999) -> list[dict]:
-    """解析已保存的章节文件（不做吸附/截断）。"""
+    """解析章节文件，时间与标题保持原样。"""
     return _parse_lines(text, max_title_chars)
 
 

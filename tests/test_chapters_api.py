@@ -13,7 +13,7 @@ def test_chapters_endpoints(tmp_path, monkeypatch):
         "1\n00:00:00,000 --> 00:00:02,000\n你好\n", encoding="utf-8"
     )
     monkeypatch.setattr(appmod.settings, "project_dir", tmp_path)
-    # CI 上没有 config.toml，需要显式给出 LLM 配置，否则接口会直接 400。
+    # 测试自带 LLM 配置，结果只依赖测试数据。
     monkeypatch.setattr(appmod.settings, "llm_base_url", "https://llm.invalid/v1")
     monkeypatch.setattr(appmod.settings, "llm_api_key", "test-key")
     monkeypatch.setattr(appmod.settings, "llm_model", "test-model")
@@ -26,7 +26,7 @@ def test_chapters_endpoints(tmp_path, monkeypatch):
 
     client = TestClient(appmod.app)
 
-    # 尚未生成
+    # 首次读取
     response = client.get("/api/chapters", params={"path": "a.mp4"})
     assert response.status_code == 200
     assert response.json()["exists"] is False

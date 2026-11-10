@@ -4,7 +4,7 @@
 - whisper 输出的每个 token 都带有起止时间，我们把它展开成「字符 -> 时间」的时间轴。
 - LLM 改写后的文本通过 difflib 与原字符时间轴做字符级对齐，得到每个新字符的时间。
 - 再按最大字数切分成字幕行，时间取该行首字符的开始与末字符的结束，
-  这样即使 LLM 删除/纠错/增字，时间也能贴合原始语音，不会整体漂移。
+  这样 LLM 删除/纠错/增字时，时间与原始语音保持一致。
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ STRONG_BREAKS = "。！？!?；;…"
 WEAK_BREAKS = "，,、：:"
 SPACE_BREAKS = " \t\n"
 ALL_BREAKS = STRONG_BREAKS + WEAK_BREAKS + SPACE_BREAKS
-# 行尾不应出现的收尾标点 / 行首不应出现的开标点
+# 收尾标点（跟随上一行）/ 开标点（跟随下一行）
 CLOSING_PUNCT = "。，、；：！？!?…）)】」》〉”’\"'"
 OPENING_PUNCT = "（(【「《〈“‘\"'"
-# 没标点时，优先在这些连接词之前断句（相当于中文的“词/小句边界”）
+# 标点稀疏时，优先在这些连接词处断句（相当于中文的“词/小句边界”）
 CLAUSE_STARTS = (
     "所以", "但是", "不过", "然后", "那么", "因为", "如果", "而且", "并且",
     "因此", "于是", "接着", "首先", "其次", "最后", "同时", "另外", "例如",
@@ -174,9 +174,9 @@ def align_times(
                     times[j1 + k] = (timeline[oi][1], timeline[oi][2])
         elif tag == "insert":
             fill_insert(j1, j2, i1)
-        # delete: 无新字符，忽略
+        # delete: 新字符为空，直接进入下一处
 
-    # 填充缺失，并保证单调不减
+    # 填充空位，并保证时间单调向后
     last = fallback_start
     result: list[tuple[float, float]] = []
     for i in range(len(new_text)):
@@ -199,7 +199,7 @@ def align_times(
 def _latest_break(text: str, min_pos: int, max_pos: int) -> int | None:
     """在 [min_pos, max_pos] 里从后往前找最近的断点，返回断点下一字符的下标。
 
-    断点包括标点之后，以及连接词之前（让下一行从“所以/但是”等词开始）。
+    断点位于标点处与连接词开头（让下一行从“所以/但是”等词开始）。
     """
     for k in range(max_pos, min_pos - 1, -1):
         if text[k - 1] in ALL_BREAKS:
@@ -213,7 +213,7 @@ def _latest_break(text: str, min_pos: int, max_pos: int) -> int | None:
 def _adjust_break(
     text: str, start: int, brk: int, min_chars: int, hard_max: int, n: int
 ) -> int:
-    """微调断点：收尾标点归上一行、左括号不留行尾、不切开英文单词/数字。"""
+    """微调断点：收尾标点归上一行、左括号随其后内容、英文单词与数字保持完整。"""
     while brk < n and brk < hard_max and text[brk] in CLOSING_PUNCT:
         brk += 1
     while brk - start > min_chars and text[brk - 1] in OPENING_PUNCT:
@@ -240,7 +240,7 @@ def _adjust_break(
             ):
                 word_start -= 1
             if word_start - start >= min_chars:
-                brk = word_start  # 往前到词首，宁可短一点也不切开单词
+                brk = word_start  # 回退到词首，保证英文单词完整
             elif word_start == start:
                 brk = word_end  # 这个单词比上限还长，整词成行，硬切反而更难读
     return brk
@@ -250,8 +250,8 @@ def split_spans(text: str, max_chars: int) -> list[tuple[int, int]]:
     """按最大字数切分，尽量在标点/连接词/英文单词边界处断开。
 
     - 优先在 [start+min_chars, start+max_chars] 内**靠近上限**的断点切；
-    - 没有断点则向后最多看 slack 个字找一个自然断点，避免硬切；
-    - 仍没有才硬切，但不切开英文单词、不让行尾停在左括号。
+    - 区间内断点为空时，向后最多看 slack 个字找自然断点；
+    - 兜底按字数硬切，英文单词与数字保持完整，左括号随其后内容。
     """
     max_chars = max(1, int(max_chars))
     min_chars = min(max(MIN_CUE_CHARS, max_chars // 3), max_chars)
@@ -275,7 +275,7 @@ def split_spans(text: str, max_chars: int) -> list[tuple[int, int]]:
         if brk is None:
             brk = limit
         brk = _adjust_break(text, i, brk, min_chars, hard_max, n)
-        # 剩余尾巴太短就并进来，避免出现孤零零的一两个字
+        # 剩余尾巴较短时并回上一句，保证句长
         if n - brk < min_chars and n - i <= hard_max - i:
             brk = n
         if brk >= n:
@@ -330,7 +330,7 @@ def _fix_timing(
         if i > 0:
             prev = cues[i - 1]
             if cue.start < prev.end:
-                # 让上一句收敛到本句开始，避免重叠
+                # 上一句结束时间收敛到本句开始时间，保证时间单调
                 prev.end = max(prev.start + 0.2, min(prev.end, cue.start))
                 if cue.start < prev.end:
                     cue.start = prev.end
@@ -354,7 +354,7 @@ def merge_short_cues(
         last = merged[-1]
         combined = last.text + cue.text
         very_short = len(cue.text) <= 2 or len(last.text) <= 2
-        # 极短（1~2 字）字幕即使隔得远一点也尽量并进去，避免一闪而过的一两个字
+        # 极短（1~2 字）字幕即使间隔较远也并入相邻句，保证展示时长
         allowed_gap = max(gap, 1.5) if very_short else gap
         allowed_chars = max_chars + 2 if len(cue.text) <= 2 else max_chars
         if (
@@ -370,7 +370,7 @@ def merge_short_cues(
 
 
 def normalize_cues(cues: list[Cue]) -> list[Cue]:
-    """排序、去重、保证时间单调不重叠。"""
+    """排序、去重，并修正重叠与零长度区间。"""
     cues = sorted((c for c in cues if c.text.strip()), key=lambda c: c.start)
     for i, cue in enumerate(cues):
         if cue.end <= cue.start:
@@ -442,7 +442,7 @@ def diff_cues(old: list[Cue], new: list[Cue]) -> dict:
 
 
 def merge_cue_lists(new: list[Cue], old: list[Cue], min_overlap: float = 0.5) -> list[Cue]:
-    """以新版为主，把旧版中“没被新版覆盖”的字幕补回来。"""
+    """以当前字幕为主，合并历史备份中的独有字幕。"""
     merged = list(new)
     for previous in old:
         span = max(previous.end - previous.start, 1e-6)

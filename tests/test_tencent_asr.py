@@ -1,4 +1,4 @@
-"""腾讯云 ASR 后端单元测试：只测纯函数，不需要 SDK / 网络。"""
+"""腾讯云 ASR 后端单元测试：只测纯函数，使用本地数据。"""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def test_hotword_list_filters_and_limits():
     glossary = [
         {"term": "哈希表"},
         {"term": ""},
-        {"term": "一二三四五六七八九十一"},  # 超过 10 字，丢弃
+        {"term": "一二三四五六七八九十一"},  # 11 个字，超出热词长度上限
     ]
     hotwords = tencent_asr._hotword_list(glossary)
     assert hotwords == "哈希表|5"

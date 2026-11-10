@@ -207,7 +207,7 @@ def list_configs(project_dir: Path) -> list[dict]:
         if path.is_file():
             add(video, path)
 
-    # 再补充没有对应视频的孤儿配置
+    # 再补充磁盘上的孤儿配置
     for path in sorted(project_dir.rglob(f"*{CONFIG_SUFFIX}")):
         if not path.is_file() or str(path.resolve()) in seen:
             continue

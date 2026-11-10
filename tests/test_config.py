@@ -35,7 +35,7 @@ def test_updated_with_merges_and_keeps_original(tmp_path):
     assert updated.project_dir == (tmp_path / "videos").resolve()
     assert updated.llm_api_key == "sk-test"
     assert updated.default_max_chars == 22
-    # 原对象不受影响
+    # 原对象保持原值
     assert settings.llm_api_key == ""
     assert settings.default_max_chars == 18
 
@@ -61,7 +61,7 @@ def test_pi_source_reads_pi_and_does_not_persist(tmp_path, monkeypatch):
     assert settings.llm_api_key == "pi-key"
     assert settings.llm_model == "pi-model"
 
-    # pi 的凭据不应写回 config.toml
+    # pi 的凭据留在 ~/.pi，config.toml 对应字段为空
     saved_llm = settings.to_dict()["llm"]
     assert saved_llm["source"] == "pi"
     assert saved_llm["base_url"] == ""
@@ -83,7 +83,7 @@ def test_pi_source_reads_pi_and_does_not_persist(tmp_path, monkeypatch):
     assert manual.llm_api_key == "my-key"
     assert manual.to_dict()["llm"]["api_key"] == "my-key"
 
-    # 再切回 pi：重新从 pi 取，且不保留手动值
+    # 切回 pi：配置取自 pi，手动值清空
     back = manual.updated_with({"llm": {"source": "pi"}})
     assert back.llm_source == "pi"
     assert back.llm_api_key == "pi-key"
@@ -123,7 +123,7 @@ def test_legacy_copy_of_pi_values_falls_back_to_pi(tmp_path, monkeypatch):
             }
         },
     )
-    # 旧版本把 pi 的配置拷贝进了 config.toml（没有 source 字段）
+    # config.toml 保存 pi 配置副本并省略 source 字段
     settings = config._resolve_settings(
         {
             "llm": {
@@ -136,7 +136,7 @@ def test_legacy_copy_of_pi_values_falls_back_to_pi(tmp_path, monkeypatch):
     )
     assert settings.llm_source == "pi"
     assert settings.llm_api_key == "pi-key"
-    # 这些拷贝不应再写回文件
+    # 保存后文件里只保留 pi 来源标记
     assert settings.to_dict()["llm"]["api_key"] == ""
 
 

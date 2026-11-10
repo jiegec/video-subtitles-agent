@@ -1,4 +1,4 @@
-"""纯函数单元测试：不依赖 ffmpeg / whisper / LLM，可在 CI 直接跑。"""
+"""纯函数单元测试：只使用标准库，可在 CI 直接跑。"""
 
 from __future__ import annotations
 
@@ -55,13 +55,13 @@ def test_split_spans_contiguous_and_bounded():
 
 
 def test_split_spans_hard_cut_keeps_trailing_punct():
-    # 10 个字 + 句号，限制 5，句号不应跑到下一句开头
+    # 10 个字 + 句号，限制 5 字：句号归上一句
     spans = split_spans("一二三四五六七八九十。下一句", 5)
     assert not any("一二三四五六七八九十。下一句"[a:b].startswith("。") for a, b in spans[1:])
 
 
 def test_split_spans_no_tiny_lines():
-    # 早期出现的句号不应被当成断点（否则会出现很短的句子）
+    # 句号位置靠前时断点顺延到句末，保证句子长度
     text = "你好。这是一个很长的句子，还有更多内容，继续讲下去"
     chunks = [text[a:b].strip() for a, b in split_spans(text, 10)]
     assert all(len(c) >= 4 for c in chunks)
@@ -153,7 +153,7 @@ def test_backup_dedupe_and_history(tmp_path):
     srt = tmp_path / "demo.srt"
     srt.write_text("1\n00:00:00,000 --> 00:00:01,000\n第一版\n", encoding="utf-8")
     assert backup.backup_srt(srt) is not None
-    assert backup.backup_srt(srt) is None  # 内容相同，跳过
+    assert backup.backup_srt(srt) is None  # 内容相同，复用最新备份
     srt.write_text("1\n00:00:00,000 --> 00:00:01,000\n第二版\n", encoding="utf-8")
     assert backup.backup_srt(srt) is not None
     assert len(backup.list_backups(srt)) == 2

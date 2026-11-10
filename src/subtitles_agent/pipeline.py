@@ -75,7 +75,7 @@ def clean_blocks(
 ) -> tuple[dict[int, str], list[dict]]:
     """对每个 block 调用 LLM 清洗，返回 ({block_index: cleaned_text}, batch_records)。
 
-    batch_records 记录每个请求的输入输出，供 trajectory 展示。失败时回退原文。
+    batch_records 记录每个请求的输入输出，供 trajectory 展示。调用成功时采用返回文本，其余情况保留原文。
     """
     results: dict[int, str] = {i: block.text for i, block in enumerate(blocks)}
     batch_records: list[dict] = []
@@ -184,7 +184,7 @@ def build_cues(
         timeline = build_char_timeline(block.tokens)
         block_cues = reflow(value, timeline, block.start, block.end, max_chars, min_duration)
         per_block.append(block_cues)
-        # 拷贝一份参与全局合并，避免 merge/normalize 修改到轨迹里的每块结果
+        # 拷贝一份参与全局合并，轨迹里的每块结果保持原样
         flat.extend(Cue(c.start, c.end, c.text) for c in block_cues)
     final = normalize_cues(merge_short_cues(flat, max_chars))
     return final, per_block

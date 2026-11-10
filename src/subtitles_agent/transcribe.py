@@ -72,7 +72,7 @@ def probe_mean_volume(settings: Settings, wav: Path) -> float | None:
 
 
 def probe_channels(settings: Settings, media: Path) -> int | None:
-    """返回第一条音频流的声道数（非立体声场景不需要做声道分析）。"""
+    """返回第一条音频流的声道数（立体声场景才做声道分析）。"""
     ffprobe = str(Path(settings.ffmpeg_bin).with_name("ffprobe"))
     try:
         out = subprocess.run(
@@ -124,7 +124,7 @@ def choose_mono_filter(
     loudest = max(left, right)
     quietest = min(left, right)
     if loudest <= _SILENT_DB:
-        return None  # 两个声道都基本无声
+        return None  # 两个声道都接近静音
     channel = "左" if left >= right else "右"
 
     # 一个声道明显更弱：通常只有单边有声音（例如右声道静音）
@@ -202,7 +202,7 @@ _PROGRESS_RE = re.compile(r"progress\s*=\s*(\d+)%")
 _VOLUME_RE = re.compile(r"mean_volume:\s*(-?[\d.]+) dB")
 
 # 声道处理阈值
-_SILENT_DB = -70.0  # 低于此值视为基本无声
+_SILENT_DB = -70.0  # 此值以下的电平按静音处理
 _ONE_CHANNEL_DB = 12.0  # 两声道电平差超过此值视为只有单边有声音
 _PHASE_CANCEL_DB = 6.0  # 混单比最响声道低超过此值视为反相抵消
 
@@ -256,7 +256,7 @@ def run_whisper(
             if match:
                 percent = int(match.group(1))
                 progress(percent)
-                # 每跳 >=5% 记一条日志（同时会更新界面上的当前消息），避免刷屏
+                # 进度每跨 5% 记一条日志（同时更新界面上的当前消息）
                 if percent >= last_reported + 5 or percent >= 100:
                     elapsed = time.time() - started
                     eta = elapsed / percent * (100 - percent) if percent > 0 else 0.0
@@ -325,10 +325,10 @@ def strip_hallucinations(
     ratio: float = 0.12,
     log: LogFn = _noop,
 ) -> tuple[list[Segment], int]:
-    """去掉 whisper 在静音/噪声上产生的重复幻觉。
+    """处理 whisper 在静音/噪声上产生的重复幻觉。
 
-    同一句文本（去标点后）出现次数超过 max(min_count, ratio * 总段数)，就认为整句都是幻觉，
-    全部丢弃；另外折叠连续出现 >=4 次的相同文本。返回（过滤后的片段, 丢弃数量）。
+    同一句文本（去标点后）出现次数超过 max(min_count, ratio * 总段数) 时，整句按幻觉处理并移除；
+    连续出现 >=4 次的相同文本保留前三条。返回（处理后的片段, 移除数量）。
     """
     if not segments:
         return segments, 0
@@ -443,7 +443,7 @@ def build_initial_prompt(
     """拼出 whisper 的 initial prompt：简体中文指令 + 术语表，帮助识别专有名词。"""
     instruction = (settings.whisper_prompt or "").strip()
     terms = [str(g.get("term", "")).strip() for g in (glossary or []) if g.get("term")]
-    # 从后往前丢弃术语，保证不把某个词从中间截断
+    # 从后往前逐个移除术语，保证每个术语完整
     while terms:
         candidate = " ".join(
             part for part in (instruction, "相关术语：" + "、".join(terms) + "。") if part

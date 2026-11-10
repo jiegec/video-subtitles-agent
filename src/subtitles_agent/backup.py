@@ -1,4 +1,4 @@
-"""SRT 历史版本：写入前把旧版本备份到 `<视频名>.backups/<视频名>-<时间戳>.srt`。"""
+"""SRT 版本备份：写入前把当前 SRT 复制到 `<视频名>.backups/<视频名>-<时间戳>.srt`。"""
 
 from __future__ import annotations
 
@@ -33,9 +33,9 @@ def backup_srt(
     keep: int = 100,
     min_interval: float = 0.0,
 ) -> Path | None:
-    """把当前 SRT 备份一份。内容与最新备份相同、或距上次备份太近时跳过。
+    """把当前 SRT 备份一份。内容与最新备份相同、或距上次备份太近时复用最新备份。
 
-    返回新建的备份路径，未备份则返回 None。
+    返回新建备份文件的路径；最新备份覆盖当前内容时返回 None。
     """
     if not srt_path.is_file():
         return None
@@ -69,8 +69,8 @@ def backup_srt(
     while target.exists():
         target = directory / f"{srt_path.stem}-{stamp}-{counter}.srt"
         counter += 1
-    # 注意：用 copyfile 而不是 copy2，否则备份会继承源文件的旧 mtime，
-    # 导致按时间排序 / 限流判断都出错。
+    # 用 copyfile 复制内容：备份文件使用新的 mtime，
+    # 按时间排序与限流判断都以备份时间为准。
     shutil.copyfile(srt_path, target)
 
     if keep > 0:

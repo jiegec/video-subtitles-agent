@@ -2,7 +2,7 @@
 
 用 `fps=1/interval` 均匀抽帧并缩放到 640 宽，产物放在
 `<video_stem>.frames/` 下，配一个 manifest.json 记录间隔与视频 mtime，
-视频没变就复用。
+视频文件签名一致时复用磁盘上的截图。
 """
 
 from __future__ import annotations

@@ -33,7 +33,7 @@ app = FastAPI(title="Video Subtitles Agent")
 
 
 class NoCacheStaticFiles(StaticFiles):
-    """静态资源加 no-cache：改前端后普通刷新即可生效。只改响应头，不包装流式响应。"""
+    """静态资源加 no-cache：改前端后普通刷新即可生效；只调整响应头，响应体原样返回。"""
 
     async def get_response(self, path: str, scope):
         response = await super().get_response(path, scope)
@@ -96,7 +96,7 @@ def get_config() -> dict:
 def get_settings() -> dict:
     path = config_path()
     data = settings.to_dict()
-    # 来源为 pi 时 to_dict() 出于安全不写入凭据，这里额外返回实际生效值供界面展示
+    # 来源为 pi 时 to_dict() 省略凭据，这里额外返回实际生效值供界面展示
     data["llm"]["resolved"] = {
         "base_url": settings.llm_base_url,
         "model": settings.llm_model,
@@ -122,7 +122,7 @@ def put_settings(payload: dict = Body(...)) -> dict:
         path = save_settings(updated)
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"写入 config.toml 失败：{exc}") from exc
-    # 就地更新：library / jobs 持有同一个 Settings 引用，无需重建
+    # 就地更新：library / jobs 持有同一个 Settings 引用，配置即时生效
     settings.copy_from(updated)
     library.clear_duration_cache()
     return {"ok": True, "config_path": str(path), "settings": settings.to_dict()}
@@ -130,7 +130,7 @@ def put_settings(payload: dict = Body(...)) -> dict:
 
 @app.post("/api/llm/test")
 def test_llm(payload: dict = Body(default=None)) -> dict:
-    """用当前（或表单里尚未保存的）LLM 配置发一个最小请求，验证是否可用。"""
+    """用当前（或表单里正在编辑的）LLM 配置发一个最小请求，验证连通性。"""
     data = payload.get("settings") if isinstance(payload, dict) else None
     try:
         target = settings.updated_with(data) if isinstance(data, dict) else settings
@@ -156,7 +156,7 @@ def test_llm(payload: dict = Body(default=None)) -> dict:
 
 @app.post("/api/asr/test")
 def test_asr(payload: dict = Body(default=None)) -> dict:
-    """验证腾讯云 ASR 密钥 / 地域是否可用（不会真正创建识别任务）。"""
+    """验证腾讯云 ASR 密钥 / 地域（只做一次空任务查询）。"""
     data = payload.get("settings") if isinstance(payload, dict) else None
     try:
         target = settings.updated_with(data) if isinstance(data, dict) else settings
@@ -387,7 +387,7 @@ def create_job(payload: dict = Body(...)) -> dict:
 
 @app.get("/api/jobs/active")
 def get_active_job(path: str = Query(...)) -> dict:
-    """当前正在运行的任务；没有则返回该视频最近一次任务（便于刷新后继续看日志）。"""
+    """当前正在运行的任务；空闲时返回该视频最近一次任务（便于刷新后继续看日志）。"""
     try:
         library.resolve(path)
     except PermissionError as exc:
@@ -517,7 +517,7 @@ def subtitles_diff(path: str = Query(...), against: str = Query(...)) -> dict:
 
 @app.post("/api/subtitles/merge")
 def subtitles_merge(payload: dict = Body(...)) -> dict:
-    """以当前（新版）为准，把旧备份中被覆盖不到的字幕补回来。"""
+    """以当前（新版）为准，合并旧备份中的独有字幕。"""
     path = payload.get("path")
     against = payload.get("against")
     if not path or not against:
@@ -540,7 +540,7 @@ def subtitles_merge(payload: dict = Body(...)) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# 章节列表（在最终字幕基础上单独生成，不并入全流程）
+# 章节列表（在最终字幕基础上单独生成，与全流程分开执行）
 # --------------------------------------------------------------------------- #
 @app.get("/api/chapters")
 def get_chapters(path: str = Query(...)) -> dict:
@@ -745,7 +745,7 @@ def _range_response(file_path: Path, request: Request) -> Response:
     if status == 206:
         headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
 
-    # HEAD（以及无 Range 的探测）不需要真实读文件
+    # HEAD 请求只返回响应头
     if request.method == "HEAD":
         return Response(status_code=status, media_type=content_type, headers=headers)
 

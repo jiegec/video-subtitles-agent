@@ -3,9 +3,9 @@
 所有配置都放在这一个 TOML 文件里：
 
 - 在网页右上角「设置」里修改，保存后写回 ``config.toml``，立即生效。
-- LLM 默认 ``source = "pi"``：base_url/api_key/model 从 ``~/.pi/agent/*`` 实时读取，不写入 ``config.toml``；
-  想自己指定就改成 ``source = "manual"``。
-- 优先级：``config.toml`` > ``~/.pi/agent/*``（仅当 source = "pi"） > 代码内默认值。
+- LLM 默认 ``source = "pi"``：base_url/api_key/model 取自 ``~/.pi/agent/*``，``config.toml`` 中对应字段留空；
+  自定义配置时设 ``source = "manual"`` 并填写这三个字段。
+- 优先级：一般配置 ``config.toml`` > 代码内默认值；LLM 的 base_url/api_key/model 在 source = "pi" 时取自 ``~/.pi/agent/*``。
 
 也可以用文本编辑器直接改 ``config.toml``，重启服务即可生效。
 """
@@ -155,7 +155,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# ~/.pi 默认值（方便开箱即用，不是必需的）
+# ~/.pi 默认值（可选的开箱即用配置）
 # --------------------------------------------------------------------------- #
 def _read_json(path: Path) -> dict:
     try:
@@ -206,11 +206,9 @@ def _detect_llm_source(file_config: dict) -> str:
     """判断 LLM 使用 pi 还是手动配置。
 
     - 显式写了 ``source`` 就用它；
-    - 老配置没有 ``source``：
-      * 填了 base_url/api_key/model，且它们与 pi 的值一致，说明只是把 pi 的配置拷贝了一份，
-        当作 ``pi``（下次保存会清掉这些拷贝）；
-      * 否则当作手动配置；
-    - 什么都没填（首次运行）则默认从 pi 获取。
+    - 省略 ``source`` 时，比较填写的 base_url/api_key/model 与 pi 的值：
+      与 pi 一致就按 ``pi`` 处理（保存时清掉这些副本），其余情况按 ``manual`` 处理；
+    - 三项都为空（首次运行）时按 ``pi`` 处理。
     """
     llm = file_config.get("llm") if isinstance(file_config, dict) else None
     if isinstance(llm, dict):
@@ -229,10 +227,9 @@ def _detect_llm_source(file_config: dict) -> str:
 
 
 def _resolve_settings(file_config: dict, base_dir: Path) -> "Settings":
-    """按优先级合并配置：默认值 < pi（模型来源为 pi 时） < config.toml。
+    """合并配置：默认值、pi 默认值（source = "pi" 时）、config.toml 依次叠加。
 
-    模型来源为 pi 时，base_url/api_key/model 一律从 pi 实时读取，
-    不读取也不保存 config.toml 里的这三个字段。
+    source = "pi" 时，base_url/api_key/model 取自 pi，config.toml 中对应字段留空。
     """
     source = _detect_llm_source(file_config)
     merged = _deep_merge(DEFAULT_CONFIG, {})
@@ -442,13 +439,13 @@ class Settings:
         }
 
     def updated_with(self, data: dict) -> "Settings":
-        """用一份（可能不完整的）配置覆盖当前值，返回新的 Settings。"""
-        # self.to_dict() 已经是当前 config.toml 的内容，再叠加本次改动后重新解析
+        """用一份局部配置覆盖当前值，返回新的 Settings。"""
+        # self.to_dict() 表示当前 config.toml 内容，叠加本次改动后重新解析
         merged = _deep_merge(self.to_dict(), data)
         return _resolve_settings(merged, self.config_dir)
 
     def copy_from(self, other: "Settings") -> None:
-        """就地更新自身，使已有引用（library / jobs）也能拿到新配置。"""
+        """就地更新自身，使 library / jobs 持有的引用也能拿到新配置。"""
         for field in fields(self):
             setattr(self, field.name, getattr(other, field.name))
 
@@ -579,7 +576,7 @@ def _settings_from_dict(data: dict, base_dir: Path) -> Settings:
 # 载入 / 保存
 # --------------------------------------------------------------------------- #
 def load_settings() -> Settings:
-    """读取 config.toml；缺失的 LLM 项在来源为 pi 时从 ~/.pi 推断。"""
+    """读取 config.toml；来源为 pi 时，LLM 配置项从 ~/.pi 推断。"""
     path = config_path()
     return _resolve_settings(_read_toml(path), path.parent)
 

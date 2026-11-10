@@ -1,12 +1,12 @@
 """漏识别补齐：找出 whisper 可能漏掉的内容并针对性重转写。
 
 两类漏识别：
-1. **时间缺口（gap）**：音频里有语音，但没有任何转写片段覆盖该时间段
-   （whisper 整段跳过）。用 ffmpeg `silencedetect` 求出语音区间，再减去已有转写的覆盖范围。
-2. **稀疏片段（sparse）**：片段覆盖了时间，但字数明显偏少（语速异常低），
-   很可能是 whisper 漏词或压缩。这类会在原时间范围内重转，必要时替换原片段。
+1. **时间缺口（gap）**：音频里有语音、转写时间轴上对应片段为空的时段。
+   用 ffmpeg `silencedetect` 求出语音区间，再减去原转写的覆盖范围。
+2. **稀疏片段（sparse）**：片段覆盖了时间，字数明显偏少（语速异常低），
+   对应 whisper 的漏词或压缩。这类会在原时间范围内重转，必要时替换原片段。
 
-对每个可疑区间切出音频单独重转（可用更大模型 / 关闭上下文），把结果合并回时间轴。
+对每个可疑区间切出音频单独重转（更大模型 / 隔离上下文），把结果合并回时间轴。
 重转结果记录在 `<视频名>.gaps.json`，并可在 Web 的生成轨迹里查看。
 """
 
@@ -123,7 +123,7 @@ def find_gaps(
     min_gap: float = 1.5,
     pad: float = 0.2,
 ) -> list[Region]:
-    """语音区间中没有任何转写覆盖的时段。"""
+    """语音区间中转写覆盖为空的时段。"""
     covered = _merge_intervals([(s.start - pad, s.end + pad) for s in segments])
     gaps: list[Region] = []
     for region_start, region_end in speech_regions:
@@ -166,7 +166,7 @@ def find_low_confidence(
     min_duration: float = 1.0,
     max_gap: float = 0.6,
 ) -> list[Region]:
-    """连续的低置信度 token 区间（whisper 自己也不确定的地方）。"""
+    """连续的低置信度 token 区间（识别把握较低的地方）。"""
     regions: list[Region] = []
     for seg in segments:
         run_start: float | None = None
@@ -366,8 +366,8 @@ def _overlap_ratio(seg: Segment, interval: tuple[float, float]) -> float:
 def load_merged_segments(asr_json: Path, report: dict | None) -> list[Segment]:
     """把原转写与「时间缺口」的补齐结果合并成一个时间轴。
 
-    只有 gap（有语音但完全没转写）才插入时间轴；sparse / low_conf 属于「已有转写但可能不准」，
-    用 build_alts() 作为「另一版识别」交给 LLM 参考，避免直接替换丢失内容。
+    gap（有语音、转写为空）直接插入时间轴；sparse / low_conf 原转写有内容但置信度较低，
+    通过 build_alts() 作为「另一版识别」交给 LLM 参考，与原文互补。
     """
     original = load_segments(asr_json)
     if not report:
@@ -410,7 +410,7 @@ def build_alts(blocks, report: dict | None, max_chars: int = 400) -> dict[int, s
         if not pieces:
             continue
         joined = "".join(pieces)[:max_chars]
-        # 与原文完全重复的不需要再给
+        # 只保留补充内容
         if joined and joined not in block.text:
             alts[index] = joined
     return alts

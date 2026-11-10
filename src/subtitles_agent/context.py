@@ -37,7 +37,7 @@ def _strip_html(text: str) -> str:
 def read_document(
     project_dir: Path, raw: str, log=lambda _: None
 ) -> tuple[str, str] | None:
-    """返回 (显示名, 文本)，失败返回 None。"""
+    """返回 (显示名, 文本)；读取成功时返回内容，其余情况返回 None。"""
     if raw.startswith(("http://", "https://")):
         try:
             resp = httpx.get(raw, timeout=30, follow_redirects=True)

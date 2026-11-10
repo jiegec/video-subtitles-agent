@@ -233,7 +233,7 @@ input[type="search"] { width: 100%; margin-bottom: 8px; }
   .player-wrap { max-width: 100%; max-height: none; }
 }
 
-/* 窄屏：字幕行改成上下堆叠，避免文本列被挤成竖排 */
+/* 窄屏：字幕行改成上下堆叠，文本列保持正常宽度 */
 @media (max-width: 720px) {
   .topbar { flex-wrap: wrap; gap: 8px; }
   .badges { flex-wrap: wrap; }

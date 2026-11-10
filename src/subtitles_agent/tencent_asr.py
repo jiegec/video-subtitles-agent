@@ -6,8 +6,8 @@
 3. 解析结构化的 ``ResultDetail``（词级时间戳），加上分段偏移后写成与 whisper ``-ojf`` 相同的 JSON 结构，
    供后续流程复用。
 
-只依赖可选依赖 ``tencentcloud-sdk-python``（``uv sync --extra tencent``），
-导入时不会加载 SDK，避免未使用腾讯云时也被强制安装。
+腾讯云 SDK 使用 ``tencentcloud-sdk-python``（随 ``uv sync`` 安装），
+首次调用时加载，纯函数测试直接可用。
 """
 
 from __future__ import annotations
@@ -43,9 +43,9 @@ def _sdk():
         from tencentcloud.common.exception.tencent_cloud_sdk_exception import (
             TencentCloudSDKException,
         )
-    except ImportError as exc:  # pragma: no cover - 取决于是否安装可选依赖
+    except ImportError as exc:  # pragma: no cover - 惰性导入分支
         raise RuntimeError(
-            "腾讯云语音识别需要可选依赖，请先安装：uv sync --extra tencent"
+            "腾讯云语音识别依赖 tencentcloud-sdk-python，请执行 uv sync 安装依赖"
         ) from exc
     return credential, asr_client, models, TencentCloudSDKException
 
@@ -54,7 +54,7 @@ def _sdk():
 # 结果解析（纯函数，便于测试）
 # --------------------------------------------------------------------------- #
 def _fill_missing(times: list[tuple[float, float] | None], start_ms: float, end_ms: float) -> None:
-    """把没有词时间戳的字符（标点、空格）按前后边界线性补齐。"""
+    """为标点、空格等字符按前后边界线性补齐词时间戳。"""
     n = len(times)
     i = 0
     while i < n:
@@ -78,7 +78,7 @@ def _fill_missing(times: list[tuple[float, float] | None], start_ms: float, end_
 
 
 def tokens_from_sentence(text: str, words, start_ms: int, end_ms: int) -> list[dict]:
-    """把一句文本拆成逐字 token，时间优先用词级时间戳，缺失的线性补齐。"""
+    """把一句文本拆成逐字 token，时间优先用词级时间戳，其余字符线性补齐。"""
     if not text:
         return []
     if end_ms < start_ms:
@@ -108,7 +108,7 @@ def tokens_from_sentence(text: str, words, start_ms: int, end_ms: int) -> list[d
     _fill_missing(times, start_ms, end_ms)
     tokens: list[dict] = []
     for char, span in zip(text, times):
-        assert span is not None  # _fill_missing 已补全
+        assert span is not None  # 由 _fill_missing 补齐
         tokens.append(
             {
                 "text": char,
@@ -240,10 +240,10 @@ def _is_auth_error(code: str) -> bool:
 
 
 def test_credentials(settings: Settings) -> dict:
-    """用一次不存在的任务查询验证腾讯云密钥 / 地域是否可用。
+    """用一个占位 TaskId 查询验证腾讯云密钥 / 地域。
 
-    ``DescribeTaskStatus`` 对不存在的 TaskId 会返回业务错误；只要不是鉴权类错误，
-    就说明请求已经通过签名与权限校验。这样可以避免为了测试而真正创建识别任务。
+    签名与权限校验通过时，``DescribeTaskStatus`` 对该 TaskId 返回业务错误；鉴权异常则直接报错。
+    测试只做查询，识别任务保持零创建。
     """
     credential, asr_client, models, sdk_error = _sdk()
     if not settings.tencent_secret_id or not settings.tencent_secret_key:

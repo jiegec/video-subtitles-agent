@@ -651,7 +651,7 @@
     updateActiveCue(videoTime(), true);
   }
 
-  // 批量自适应高度：先统一读取 scrollHeight，再统一写入，避免逐行触发重排（大文件会卡死）
+  // 批量自适应高度：先统一读取 scrollHeight，再统一写入，减少逐行重排（大文件保持流畅）
   function autoGrowAllCues() {
     const areas = els.cueList.querySelectorAll('textarea[data-field="text"]');
     const heights = new Array(areas.length);
@@ -687,7 +687,7 @@
       index = state.cues.length - 1;
     }
     const text = index >= 0 ? state.cues[index].text : "";
-    // 每帧都会调用：内容没变就直接返回，避免无谓的 DOM 写入
+    // 每帧都会调用：内容相同时直接返回，减少 DOM 写入
     if (!force && index === state.activeIndex && text === state.overlayText) return;
     const indexChanged = index !== state.activeIndex || force;
     state.activeIndex = index;
@@ -1660,7 +1660,7 @@
   }
 
   function tick() {
-    // 只在播放时每帧刷新，暂停时交给 timeupdate/seeked 事件，避免空闲时白跑
+    // 播放时按帧刷新，暂停时由 timeupdate/seeked 事件驱动
     if (state.cues.length && !els.player.paused) updateActiveCue(videoTime());
     requestAnimationFrame(tick);
   }

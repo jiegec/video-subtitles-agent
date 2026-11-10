@@ -100,7 +100,7 @@ class ChatResult:
 
 
 def _usage_summary(raw: Any) -> dict:
-    """把不同服务商的 usage 归一化，便于展示。"""
+    """把各家服务商的 usage 归一化，便于展示。"""
     if not isinstance(raw, dict):
         return {}
     prompt_details = raw.get("prompt_tokens_details") or {}
@@ -158,7 +158,7 @@ class LLMClient:
         max_tokens: int | None = None,
         temperature: float = 0.2,
     ) -> ChatResult:
-        """通用补全：可自定义 system prompt，不套用字幕清洗的默认提示词。"""
+        """通用补全：使用调用方传入的 system prompt。"""
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -176,7 +176,7 @@ class LLMClient:
         return self._request(payload)
 
     def test_connection(self) -> ChatResult:
-        """最小请求，用于在设置里验证接口地址 / 密钥 / 模型是否可用。"""
+        """最小请求，供设置页验证接口地址 / 密钥 / 模型的连通性。"""
         payload = {
             "model": self.settings.llm_model,
             "messages": [{"role": "user", "content": "请只回复两个字：正常"}],
@@ -197,7 +197,7 @@ class LLMClient:
                 response = self._client.post("/chat/completions", json=payload)
                 if response.status_code >= 400:
                     body = response.text[:300]
-                    # 部分服务商不认 reasoning_effort，去除后重试一次
+                    # 兼容基础参数服务商：带 reasoning_effort 收到 400 时，去掉该参数重试一次
                     if payload.get("reasoning_effort") and response.status_code == 400:
                         payload = {k: v for k, v in payload.items() if k != "reasoning_effort"}
                     raise LLMError(f"HTTP {response.status_code}: {body}")
