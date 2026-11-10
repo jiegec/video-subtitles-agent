@@ -255,7 +255,7 @@
     },
     {
       title: "LLM（OpenAI 兼容）",
-      desc: "默认从 pi（~/.pi/agent）读取接口地址 / 密钥 / 模型，不会写入 config.toml；也可以改为手动配置。",
+      desc: "默认从 pi（~/.pi/agent）读取接口地址 / 密钥 / 模型，保存时只记录来源标记；手动配置时选择 manual 并填写这三项。",
       noteId: "llmSourceNote",
       fields: [
         {
