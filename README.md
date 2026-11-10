@@ -2,17 +2,16 @@
 
 [![CI](https://github.com/jiegec/video-subtitles-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/jiegec/video-subtitles-agent/actions/workflows/ci.yml)
 
-基于 **whisper-cli + LLM** 的视频字幕生成与编辑工具。所有操作都在一个 Web 界面里完成：
+基于 **whisper-cli / 腾讯云 ASR + LLM** 的视频字幕生成与编辑工具。所有操作都在一个 Web 界面里完成：
 
 - 扫描 `project/` 目录下的视频
-- 用 `ffmpeg` 抽取音频（`.wav` 保存在视频旁边）
 - 用 `ffmpeg` 抽取音频（`.wav` 保存在视频旁边）
 - 语音识别后端可选：本地 `whisper-cli`（带 token 级时间戳），或**腾讯云录音文件识别**（云端，自动分片上传）
 - 用 LLM 纠正识别错误、去除口语、按最大字数重新断句；设置里可**一键测试 LLM 连接**
 - **结合视频画面截图**（多模态）与**资料 / 术语表**提高纠错准确率
 - 网页里预览、逐句编辑（**自动保存**），支持 0.5×–3× 倍速播放（快捷键 `[` / `]`）
 - 自动保留 SRT 历史版本到 `<视频名>.backups/`，可一键恢复；重新生成时先展示与旧版的 diff，可选择覆盖 / 合并 / 保留旧版
-- **章节列表**：确认字幕后可单独生成章节（最多 10 条，每行 `HH:MM:SS 标题`，首条从 `00:00:00` 开始），保存为 `<视频名>.chapters.txt` 并在网页显示
+- **章节列表**：确认字幕后可单独生成章节（默认最多 10 条，每行 `HH:MM:SS 标题`，首条从 `00:00:00` 开始），保存为 `<视频名>.chapters.txt` 并在网页显示
 - **生成轨迹**：可视化语音识别原文 → LLM 清洗 → 重排对齐的全过程，包括实际注入的上下文、LLM 输入输出/token/耗时与每个 LLM 请求
 - **漏识别补齐**：检测 whisper 漏掉/听错的内容（时间缺口、稀疏、低置信）并针对性重转，作为「另一版识别」交给 LLM 合并
 - 自动处理**左右声道反相**、**只有单边有声音**（否则 `-ac 1` 混单会抵消或减半音频）与 whisper **重复幻觉**
@@ -33,7 +32,7 @@ uv run subtitles-agent --port 9000
 2. 「上下文与资料」标签里填写视频说明、术语表，添加参考资料（PDF / Word / Markdown / 文本 / 网页链接，或直接上传），也可以**从其他视频复用配置**或**导入一个现成的 JSON 配置**
 3. 「生成设置」里设置每句最大字数等参数
 4. 点「全流程生成字幕」：每次都从头跑（抽音频 → 转写 → 补齐漏识别 → 截图 → LLM 清洗），不做跳过
-5. 如果已经有字幕，会自动弹出与旧版的 diff，可选择**用新版覆盖 / 合并新旧 / 保留旧版**；没有字幕則直接生成
+5. 如果已经有字幕，会自动弹出与旧版的 diff，可选择**用新版覆盖 / 合并新旧 / 保留旧版**；没有字幕则直接生成
 6. 在下方字幕编辑器里预览、修改，**修改会自动保存**；点「历史」可查看/恢复历史版本
 7. 「生成轨迹」标签可以看到语音识别原文、注入的上下文、LLM 输入输出/token/耗时与前后 diff
 8. 确认字幕没问题后，在右侧「章节」标签点「生成章节列表」，生成并保存到 `<视频名>.chapters.txt`（独立操作，不属于全流程）
@@ -43,7 +42,7 @@ uv run subtitles-agent --port 9000
 - Python 3.11+
 - `ffmpeg` / `ffprobe`
 - `whisper-cli`（whisper.cpp）与已下载的模型，默认 `./ggml-medium.bin`（仅 whisper 后端需要）
-- 腾讯云后端需要可选依赖：`uv sync --extra tencent`
+- 腾讯云 SDK（`tencentcloud-sdk-python`）已作为强制依赖随 `uv sync` 安装，腾讯云后端无需额外 `--extra`
 
 ## 配置
 
@@ -53,7 +52,7 @@ uv run subtitles-agent --port 9000
 - 也可以直接用文本编辑器改 `config.toml`（相对路径都相对于本文件所在目录），然后重启服务。
 - 语音识别后端在「设置 → 语音识别」里选择：`whisper`（本地）或 `tencent`（腾讯云）；选腾讯云时可点「测试密钥」验证 SecretId / SecretKey 是否可用（不会创建真实识别任务）。
 - LLM 默认 `source = "pi"`：接口地址 / 密钥 / 模型从 `~/.pi/agent/*` 实时读取，**不会写入 `config.toml`**。想自己指定就改成 `source = "manual"` 并填写下面三项。设置里的「测试连接」可以发一个最小请求验证是否可用。
-- 优先级：`config.toml` > `~/.pi/agent/*`（仅当 `source = "pi"` 时用于取模型） > 内置默认值。
+- 优先级：一般配置 `config.toml` > 内置默认值；但 LLM 的 `base_url` / `api_key` / `model` 例外——`source = "pi"` 时一律以 `~/.pi/agent/*` 为准，`config.toml` 里的这三个值会被忽略。
 
 `config.toml` 的结构如下（首次保存后自动生成）：
 
@@ -159,7 +158,7 @@ input_chars = 24000       # 送给 LLM 的时间轴字数上限
 | `xxx.subtitles.json` | 本视频的工程配置（可复用/导入导出） |
 | `xxx.trajectory.json` | 生成轨迹（原始字幕 / 上下文 / LLM 输入输出 / 重排结果） |
 | `xxx.backups/` | SRT 历史版本（自动保存/重新生成前备份） |
-| `xxx.chapters.txt` | 章节列表（每行 `HH:MM:SS 标题`，最多 10 条，首条从 00:00:00 开始） |
+| `xxx.chapters.txt` | 章节列表（每行 `HH:MM:SS 标题`，默认最多 10 条，首条从 00:00:00 开始） |
 | `xxx.srt` | 最终字幕（编辑时自动保存） |
 
 ## 生成轨迹（trajectory）
