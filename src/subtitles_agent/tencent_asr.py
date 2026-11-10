@@ -6,8 +6,7 @@
 3. 解析结构化的 ``ResultDetail``（词级时间戳），加上分段偏移后写成与 whisper ``-ojf`` 相同的 JSON 结构，
    供后续流程复用。
 
-腾讯云 SDK 使用 ``tencentcloud-sdk-python``（随 ``uv sync`` 安装），
-首次调用时加载，纯函数测试直接可用。
+SDK 采用惰性导入，首次调用时加载，纯函数测试直接可用。
 """
 
 from __future__ import annotations

@@ -42,7 +42,6 @@ uv run subtitles-agent --port 9000
 - Python 3.11+
 - `ffmpeg` / `ffprobe`
 - `whisper-cli`（whisper.cpp）与本地模型，默认 `./ggml-medium.bin`（whisper 后端使用）
-- 腾讯云 SDK（`tencentcloud-sdk-python`）是强制依赖，`uv sync` 会一并安装
 
 ## 配置
 
