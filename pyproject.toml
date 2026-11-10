@@ -11,15 +11,11 @@ dependencies = [
     "python-multipart>=0.0.9",
     "pypdf>=4.2",
     "python-docx>=1.1",
+    "tencentcloud-sdk-python>=3.1.177",
 ]
 
 [project.scripts]
 subtitles-agent = "subtitles_agent.__main__:main"
-
-[project.optional-dependencies]
-tencent = [
-    "tencentcloud-sdk-python>=3.1.177",
-]
 
 [dependency-groups]
 dev = [
